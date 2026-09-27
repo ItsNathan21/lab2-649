@@ -81,6 +81,19 @@ after command handling and scheduling are integrated.
 
 ## First powered test
 
+An opt-in build waits for a fresh press/release of the blue USER button, runs
+the LEFT motor at 20% for 500 ms, then brakes both wheels and prints encoder
+deltas. It runs once per reset and never starts motion automatically on boot.
+Do not halt the debugger during motion: the CPU must run to execute the stop.
+
+```sh
+west build -b nucleo_f401re/stm32f401xe -d build-motor-test . -- -DLAB_MOTOR_TEST=ON
+west flash -d build-motor-test --runner openocd
+```
+
+The normal build defaults to this test OFF. Reset re-arms the test button;
+to remove the test from its build, rebuild with `-DLAB_MOTOR_TEST=OFF` and flash.
+
 Keep wheels raised and verify wiring/jumpers before applying motor power.
 First scope ENA/ENB after boot: both should remain LOW. To run a short test,
 call this from application thread context after initialization (it is NOT

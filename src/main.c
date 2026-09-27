@@ -8,6 +8,10 @@
 #include "encoder.h"
 #include "motor.h"
 
+#ifdef LAB_MOTOR_TEST
+int motor_test_once(void);
+#endif
+
 #define WHEEL_RX_STACK_SIZE 1024
 #define WHEEL_RX_PRIORITY   5
 #define WHEEL_RX_QUEUE_SIZE 128
@@ -107,6 +111,13 @@ int main(void)
 		return ret;
 	}
 	printk("Encoders: left PC0=A PC1=B; right PC2=A PC3=B (x4)\n");
+#ifdef LAB_MOTOR_TEST
+	ret = motor_test_once();
+	if (ret != 0) {
+		printk("Motor test failed: %d\n", ret);
+		return ret;
+	}
+#endif
 	struct encoder_snapshot last, now;
 	encoders_snapshot(&last);
 	int64_t next = last.timestamp_ms;

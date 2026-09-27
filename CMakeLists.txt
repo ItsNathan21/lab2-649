@@ -4,3 +4,9 @@ project(lab2)
 
 target_sources(app PRIVATE src/main.c src/encoder.c src/motor.c)
 target_include_directories(app PRIVATE include)
+
+option(LAB_MOTOR_TEST "Enable USER-button one-shot left motor test" OFF)
+if(LAB_MOTOR_TEST)
+  target_sources(app PRIVATE src/motor_test.c)
+  target_compile_definitions(app PRIVATE LAB_MOTOR_TEST=1)
+endif()
