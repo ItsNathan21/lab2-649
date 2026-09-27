@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+/* Measured at the wheel using this x4 decoder; do not multiply by four. */
+#define ENCODER_COUNTS_PER_REV 1320
+
 enum encoder_side { ENCODER_LEFT, ENCODER_RIGHT, ENCODER_COUNT };
 
 struct encoder_snapshot {

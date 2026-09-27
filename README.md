@@ -1,5 +1,9 @@
 # Lab 2: Zephyr bring-up
 
+The L298N output driver is available in `src/motor.c`; see [MOTORS.md](MOTORS.md)
+for pin assignments, brake/coast behavior, and the first powered test. Startup
+leaves motors coasting. Wheel commands are not yet connected to motor outputs.
+
 Encoder bring-up is now implemented alongside the USART1 receiver. See
 [ENCODERS.md](ENCODERS.md) for the PC0-PC3 wiring, build, and hand-spin test.
 The original starter notes below describe the earlier Hello World firmware;

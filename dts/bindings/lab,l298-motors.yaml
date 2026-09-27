@@ -1,0 +1,10 @@
+description: Two L298 bridges with PWM enables and four direction inputs
+compatible: "lab,l298-motors"
+include: base.yaml
+properties:
+  pwms:
+    type: phandle-array
+    required: true
+  direction-gpios:
+    type: phandle-array
+    required: true

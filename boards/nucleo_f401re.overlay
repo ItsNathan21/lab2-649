@@ -1,10 +1,31 @@
 #include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
 
 / {
+	motors {
+		compatible = "lab,l298-motors";
+		/* ENA/ENB: TIM3 CH1/CH2, 10 kHz (8400 ticks at 84 MHz). */
+		pwms = <&pwm3 1 PWM_HZ(10000) PWM_POLARITY_NORMAL>,
+		       <&pwm3 2 PWM_HZ(10000) PWM_POLARITY_NORMAL>;
+		/* IN1, IN2, IN3, IN4 respectively. */
+		direction-gpios = <&gpioc 4 GPIO_ACTIVE_HIGH>,
+				  <&gpioc 5 GPIO_ACTIVE_HIGH>,
+				  <&gpioc 6 GPIO_ACTIVE_HIGH>,
+				  <&gpioc 7 GPIO_ACTIVE_HIGH>;
+	};
 	/* Weak pull-downs hold disconnected inputs quiet; verify sensor levels. */
 	encoders {
 		compatible = "lab,quadrature-encoders";
 		left-gpios = <&gpioc 0 GPIO_PULL_DOWN>, <&gpioc 1 GPIO_PULL_DOWN>;
 		right-gpios = <&gpioc 2 GPIO_PULL_DOWN>, <&gpioc 3 GPIO_PULL_DOWN>;
+	};
+};
+
+&timers3 {
+	status = "okay";
+	pwm3: pwm {
+		status = "okay";
+		pinctrl-0 = <&tim3_ch1_pb4 &tim3_ch2_pb5>;
+		pinctrl-names = "default";
 	};
 };

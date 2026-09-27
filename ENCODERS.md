@@ -1,5 +1,9 @@
 # Encoder bring-up (Nucleo F401RE)
 
+Calibration: both wheels measured **1320 decoded counts per wheel revolution**,
+now stored in `ENCODER_COUNTS_PER_REV`. Console output includes millirpm (1000
+mRPM = 1 RPM). Motor output bring-up is documented separately in `MOTORS.md`.
+
 The firmware counts two quadrature encoders with both-edge GPIO interrupts
 (x4 decoding). It leaves the existing USART1 receiver running and prints a
 snapshot every 100 ms over the ST-LINK USART2 console at 115200 baud.

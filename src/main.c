@@ -6,6 +6,7 @@
 
 #include "wheel_info.h"
 #include "encoder.h"
+#include "motor.h"
 
 #define WHEEL_RX_STACK_SIZE 1024
 #define WHEEL_RX_PRIORITY   5
@@ -94,7 +95,13 @@ K_THREAD_DEFINE(wheel_rx_thread, WHEEL_RX_STACK_SIZE,
 int main(void)
 {
 	printk("Lab 2: wheel UART receiver on %s\n", CONFIG_BOARD_TARGET);
-	int ret = encoders_init();
+	int ret = motors_init();
+	if (ret != 0) {
+		printk("Motor initialization failed: %d\n", ret);
+		return ret;
+	}
+	printk("Motors initialized in coast; drive commands are not enabled by UART\n");
+	ret = encoders_init();
 	if (ret != 0) {
 		printk("Encoder initialization failed: %d\n", ret);
 		return ret;
@@ -117,10 +124,17 @@ int main(void)
 			last.counts[ENCODER_LEFT]) * 1000 / elapsed;
 		int64_t right_cps = (now.counts[ENCODER_RIGHT] -
 			last.counts[ENCODER_RIGHT]) * 1000 / elapsed;
-		printk("ENC L=%lld (%lld cps) R=%lld (%lld cps) "
+		/* Integer millirpm avoids float printf and preserves low-speed detail. */
+		int64_t left_mrpm = (now.counts[0] - last.counts[0]) * 60000000LL /
+			(ENCODER_COUNTS_PER_REV * elapsed);
+		int64_t right_mrpm = (now.counts[1] - last.counts[1]) * 60000000LL /
+			(ENCODER_COUNTS_PER_REV * elapsed);
+		printk("ENC L=%lld (%lld cps, %lld mRPM) R=%lld (%lld cps, %lld mRPM) "
 		       "invalid=%u/%u read_errors=%u\n",
 		       (long long)now.counts[0], (long long)left_cps,
+		       (long long)left_mrpm,
 		       (long long)now.counts[1], (long long)right_cps,
+		       (long long)right_mrpm,
 		       (unsigned int)now.invalid_transitions[0],
 		       (unsigned int)now.invalid_transitions[1],
 		       (unsigned int)now.read_errors);
