@@ -1,0 +1,10 @@
+description: Two software quadrature encoders, A then B for each GPIO pair
+compatible: "lab,quadrature-encoders"
+include: base.yaml
+properties:
+  left-gpios:
+    type: phandle-array
+    required: true
+  right-gpios:
+    type: phandle-array
+    required: true

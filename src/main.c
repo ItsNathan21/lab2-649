@@ -5,6 +5,7 @@
 #include <zephyr/sys/printk.h>
 
 #include "wheel_info.h"
+#include "encoder.h"
 
 #define WHEEL_RX_STACK_SIZE 1024
 #define WHEEL_RX_PRIORITY   5
@@ -93,5 +94,39 @@ K_THREAD_DEFINE(wheel_rx_thread, WHEEL_RX_STACK_SIZE,
 int main(void)
 {
 	printk("Lab 2: wheel UART receiver on %s\n", CONFIG_BOARD_TARGET);
-	return 0;
+	int ret = encoders_init();
+	if (ret != 0) {
+		printk("Encoder initialization failed: %d\n", ret);
+		return ret;
+	}
+	printk("Encoders: left PC0=A PC1=B; right PC2=A PC3=B (x4)\n");
+	struct encoder_snapshot last, now;
+	encoders_snapshot(&last);
+	int64_t next = last.timestamp_ms;
+
+	while (1) {
+		/* Absolute schedule avoids adding print time to each period. */
+		next += 100;
+		k_sleep(K_TIMEOUT_ABS_MS(next));
+		encoders_snapshot(&now);
+		int64_t elapsed = now.timestamp_ms - last.timestamp_ms;
+		if (elapsed <= 0) {
+			continue;
+		}
+		int64_t left_cps = (now.counts[ENCODER_LEFT] -
+			last.counts[ENCODER_LEFT]) * 1000 / elapsed;
+		int64_t right_cps = (now.counts[ENCODER_RIGHT] -
+			last.counts[ENCODER_RIGHT]) * 1000 / elapsed;
+		printk("ENC L=%lld (%lld cps) R=%lld (%lld cps) "
+		       "invalid=%u/%u read_errors=%u\n",
+		       (long long)now.counts[0], (long long)left_cps,
+		       (long long)now.counts[1], (long long)right_cps,
+		       (unsigned int)now.invalid_transitions[0],
+		       (unsigned int)now.invalid_transitions[1],
+		       (unsigned int)now.read_errors);
+		last = now;
+		if (next < now.timestamp_ms) {
+			next = now.timestamp_ms;
+		}
+	}
 }

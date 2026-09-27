@@ -1,5 +1,10 @@
 # Lab 2: Zephyr bring-up
 
+Encoder bring-up is now implemented alongside the USART1 receiver. See
+[ENCODERS.md](ENCODERS.md) for the PC0-PC3 wiring, build, and hand-spin test.
+The original starter notes below describe the earlier Hello World firmware;
+current output is UART packet tracing plus encoder counts/second.
+
 Minimal firmware for the Nucleo F401RE (`nucleo_f401re/stm32f401xe`), as specified in the supplied flashing guide. It prints a startup banner and `Hello World! count=N` once per second. The sleep yields the CPU to Zephyr instead of busy-waiting.
 
 ## Layout

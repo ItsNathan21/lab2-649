@@ -1,0 +1,10 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	/* Weak pull-downs hold disconnected inputs quiet; verify sensor levels. */
+	encoders {
+		compatible = "lab,quadrature-encoders";
+		left-gpios = <&gpioc 0 GPIO_PULL_DOWN>, <&gpioc 1 GPIO_PULL_DOWN>;
+		right-gpios = <&gpioc 2 GPIO_PULL_DOWN>, <&gpioc 3 GPIO_PULL_DOWN>;
+	};
+};
