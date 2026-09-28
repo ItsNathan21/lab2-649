@@ -1,3 +1,6 @@
+/** @file encoder.c
+ * @brief GPIO quadrature acquisition and coherent snapshots.
+ */
 #include <errno.h>
 #include <stdbool.h>
 #include <zephyr/drivers/gpio.h>
@@ -6,14 +9,12 @@
 #include "encoder.h"
 #include "quadrature.h"
 
-#define ENCODERS DT_PATH(encoders)
-
 /* A/B pairs must all use one GPIO port, for one simultaneous input read. */
 static const struct gpio_dt_spec channels[ENCODER_COUNT][2] = {
-	{ GPIO_DT_SPEC_GET_BY_IDX(ENCODERS, left_gpios, 0),
-	  GPIO_DT_SPEC_GET_BY_IDX(ENCODERS, left_gpios, 1) },
-	{ GPIO_DT_SPEC_GET_BY_IDX(ENCODERS, right_gpios, 0),
-	  GPIO_DT_SPEC_GET_BY_IDX(ENCODERS, right_gpios, 1) },
+	{ GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(encoders), left_gpios, 0),
+	  GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(encoders), left_gpios, 1) },
+	{ GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(encoders), right_gpios, 0),
+	  GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(encoders), right_gpios, 1) },
 };
 
 /* Set a side to -1 if its count decreases when its wheel turns forward. */
@@ -24,12 +25,24 @@ static uint8_t previous[ENCODER_COUNT];
 static bool have_previous;
 static bool initialized;
 
+/**
+ * @brief Read the two encoder phases from a sampled GPIO port.
+ * @param value Raw port input bits.
+ * @param side Encoder index, left or right.
+ * @return Two-bit (A << 1) | B state.
+ */
 static uint8_t ab_state(gpio_port_value_t value, unsigned int side)
 {
 	return (!!(value & BIT(channels[side][0].pin)) << 1) |
 	       !!(value & BIT(channels[side][1].pin));
 }
 
+/**
+ * @brief Count quadrature transitions from one simultaneous port sample.
+ * @param port GPIO device supplying all encoder phases.
+ * @param cb Registered callback; unused.
+ * @param pins Triggered pin mask; unused.
+ */
 static void on_edge(const struct device *port, struct gpio_callback *cb,
 		    gpio_port_pins_t pins)
 {
@@ -58,6 +71,10 @@ static void on_edge(const struct device *port, struct gpio_callback *cb,
 	have_previous = true;
 }
 
+/**
+ * @brief Initialize both encoders once with the wheels stationary.
+ * @return 0 on success, or a negative initialization error.
+ */
 int encoders_init(void)
 {
 	const struct device *port = channels[0][0].port;
@@ -121,6 +138,10 @@ cleanup:
 	return ret;
 }
 
+/**
+ * @brief Copy a coherent encoder snapshot from thread context.
+ * @param out Non-null caller-owned destination.
+ */
 void encoders_snapshot(struct encoder_snapshot *out)
 {
 	/* F401RE is single-core. Protect 64-bit counts against ISR updates. */

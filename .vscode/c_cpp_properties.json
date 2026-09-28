@@ -1,0 +1,55 @@
+{
+  "configurations": [
+    {
+      "name": "Zephyr Nucleo F401RE (WSL)",
+      "compilerPath": "${env:HOME}/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc",
+      "compilerArgs": [
+        "-mcpu=cortex-m4",
+        "-mthumb",
+        "-mabi=aapcs",
+        "--sysroot=${env:HOME}/zephyr-sdk-1.0.1/gnu/arm-zephyr-eabi/arm-zephyr-eabi",
+        "-specs=picolibc.specs"
+      ],
+      "intelliSenseMode": "linux-gcc-arm",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "includePath": [
+        "${workspaceFolder}/include",
+        "${workspaceFolder}/../include",
+        "${workspaceFolder}/build/zephyr/include/generated",
+        "${workspaceFolder}/../soc/st/stm32",
+        "${workspaceFolder}/../lib/libc/picolibc/include",
+        "${workspaceFolder}/../soc/st/stm32/common/.",
+        "${workspaceFolder}/../drivers",
+        "${workspaceFolder}/../soc/st/stm32/stm32f4x/.",
+        "${workspaceFolder}/../subsys/portability/posix/c_lib_ext/getopt",
+        "${workspaceFolder}/../modules/cmsis_6/.",
+        "${workspaceFolder}/../../modules/hal/cmsis_6/CMSIS/Core/Include",
+        "${workspaceFolder}/../../modules/hal/stm32/stm32cube/stm32f4xx/soc",
+        "${workspaceFolder}/../../modules/hal/stm32/stm32cube/stm32f4xx/drivers/include",
+        "${workspaceFolder}/../../modules/hal/stm32/stm32cube/common_ll/include",
+        "${workspaceFolder}/../lib/libc/common/include"
+      ],
+      "defines": [
+        "CORE_CM4",
+        "HSE_VALUE=8000000",
+        "K_HEAP_MEM_POOL_SIZE=0",
+        "PICOLIBC_LONG_LONG_PRINTF_SCANF",
+        "STM32F401xE",
+        "USE_FULL_LL_DRIVER",
+        "USE_HAL_DMA_MODULE=0",
+        "USE_HAL_DRIVER",
+        "_POSIX_THREAD_SAFE_FUNCTIONS=200809L",
+        "__LINUX_ERRNO_EXTENSIONS__",
+        "__PROGRAM_START",
+        "__ZEPHYR__=1"
+      ],
+      "forcedInclude": [
+        "${workspaceFolder}/build/zephyr/include/generated/zephyr/autoconf.h",
+        "${workspaceFolder}/../include/zephyr/toolchain/zephyr_stdint.h"
+      ]
+    }
+  ],
+  "version": 4,
+  "enableConfigurationSquiggles": true
+}

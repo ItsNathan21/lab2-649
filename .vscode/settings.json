@@ -1,0 +1,6 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "C_Cpp.errorSquiggles": "enabled",
+  "editor.hover.enabled": "on",
+  "cmake.configureOnOpen": false
+}

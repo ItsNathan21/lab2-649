@@ -2,6 +2,15 @@
 #include <zephyr/dt-bindings/pwm/pwm.h>
 
 / {
+	blinkers {
+		compatible = "gpio-leds";
+		left_blinker: left_blinker {
+			gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
+		};
+		right_blinker: right_blinker {
+			gpios = <&gpioc 10 GPIO_ACTIVE_HIGH>;
+		};
+	};
 	motors {
 		compatible = "lab,l298-motors";
 		/* ENA/ENB: TIM3 CH1/CH2, 10 kHz (8400 ticks at 84 MHz). */

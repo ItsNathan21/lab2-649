@@ -1,22 +1,17 @@
-#ifndef LAB_QUADRATURE_H_
-#define LAB_QUADRATURE_H_
+/** @file quadrature.h
+ * @brief Quadrature API and constants.
+ */
+#ifndef QUADRATURE_H_
+#define QUADRATURE_H_
 
 #include <stdint.h>
 
-/* State = (A << 1) | B. Positive sequence: 00 -> 01 -> 11 -> 10 -> 00.
- * Two-bit jumps are ambiguous: count no movement and record an error.
- * Repeated states are harmless (both GPIO IRQs can observe the same state).
+/**
+ * @brief Decode one x4 edge; repeated states and ambiguous two-bit jumps count zero.
+ * @param previous Previous (A << 1) | B state, in 0..3.
+ * @param current Current (A << 1) | B state, in 0..3.
+ * @return +1 for 00->01->11->10->00, -1 in reverse, otherwise 0.
  */
-static inline int quadrature_step(uint8_t previous, uint8_t current)
-{
-	static const int8_t steps[16] = {
-		 0,  1, -1,  0,
-		-1,  0,  0,  1,
-		 1,  0,  0, -1,
-		 0, -1,  1,  0,
-	};
+int quadrature_step(uint8_t previous, uint8_t current);
 
-	return steps[(previous << 2) | current];
-}
-
-#endif
+#endif /* QUADRATURE_H_ */

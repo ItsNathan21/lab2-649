@@ -1,3 +1,6 @@
+/** @file motor.c
+ * @brief Serialized H-bridge output control and fault handling.
+ */
 #include <errno.h>
 #include <stdbool.h>
 #include <zephyr/drivers/gpio.h>
@@ -6,27 +9,31 @@
 
 #include "motor.h"
 
-#define MOTORS DT_PATH(motors)
-
 static const struct pwm_dt_spec enables[MOTOR_COUNT] = {
-	PWM_DT_SPEC_GET_BY_IDX(MOTORS, 0),
-	PWM_DT_SPEC_GET_BY_IDX(MOTORS, 1),
+	PWM_DT_SPEC_GET_BY_IDX(DT_PATH(motors), 0),
+	PWM_DT_SPEC_GET_BY_IDX(DT_PATH(motors), 1),
 };
 static const struct gpio_dt_spec inputs[MOTOR_COUNT][2] = {
-	{ GPIO_DT_SPEC_GET_BY_IDX(MOTORS, direction_gpios, 0),
-	  GPIO_DT_SPEC_GET_BY_IDX(MOTORS, direction_gpios, 1) },
-	{ GPIO_DT_SPEC_GET_BY_IDX(MOTORS, direction_gpios, 2),
-	  GPIO_DT_SPEC_GET_BY_IDX(MOTORS, direction_gpios, 3) },
+	{ GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 0),
+	  GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 1) },
+	{ GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 2),
+	  GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 3) },
 };
 
 /* Adjust after verifying wheel direction with a low-duty, raised-wheel test. */
 static const int polarity[MOTOR_COUNT] = { 1, 1 };
-K_MUTEX_DEFINE(motor_lock);
+static K_MUTEX_DEFINE(motor_lock);
 static bool ready;
 static bool faulted;
 static bool braking;
 static int applied[MOTOR_COUNT];
 
+/**
+ * @brief Round a motor duty to the nearest PWM timer tick.
+ * @param side Motor index.
+ * @param duty Unsigned duty from 0 to MOTOR_DUTY_FULL_SCALE.
+ * @return 0 on success, or a negative PWM/range error.
+ */
 static int set_enable(unsigned int side, uint32_t duty)
 {
 	const struct pwm_dt_spec *pwm = &enables[side];
@@ -49,6 +56,10 @@ static int set_enable(unsigned int side, uint32_t duty)
 }
 
 /* Always try both, even if one fails. */
+/**
+ * @brief Disable both enables and wait for timer preloads to settle.
+ * @return 0 on success, or the first PWM error.
+ */
 static int disable_all(void)
 {
 	int left = set_enable(MOTOR_LEFT, 0);
@@ -61,6 +72,11 @@ static int disable_all(void)
 	return left != 0 ? left : right;
 }
 
+/**
+ * @brief Latch a hardware fault and attempt to disable both motors.
+ * @param error Original negative driver error.
+ * @return The original error.
+ */
 static int fail(int error)
 {
 	faulted = true;
@@ -68,11 +84,19 @@ static int fail(int error)
 	return error;
 }
 
+/**
+ * @brief Check whether the motor driver can accept commands.
+ * @return 0 if ready, -ENODEV before initialization, or -EIO after a fault.
+ */
 static int available(void)
 {
 	return !ready ? -ENODEV : faulted ? -EIO : 0;
 }
 
+/**
+ * @brief Initialize both motor outputs in coast; call from thread context.
+ * @return 0 on success, or a negative initialization error.
+ */
 int motors_init(void)
 {
 	int ret = 0;
@@ -114,6 +138,12 @@ out:
 	return ret;
 }
 
+/**
+ * @brief Set signed duty, rounded to the nearest available PWM tick.
+ * @param side MOTOR_LEFT or MOTOR_RIGHT.
+ * @param duty_raw Signed duty in -65535..65535; zero coasts.
+ * @return 0 on success, or a negative error; see motor.h for interlocks.
+ */
 int motor_drive_raw(enum motor_side side, int32_t duty_raw)
 {
 	int ret;
@@ -167,6 +197,12 @@ out:
 	return ret;
 }
 
+/**
+ * @brief Set motor duty in signed thousandths from thread context.
+ * @param side MOTOR_LEFT or MOTOR_RIGHT.
+ * @param duty_permille Duty in -1000..1000; zero coasts.
+ * @return 0 on success, or a negative error; see motor.h for interlocks.
+ */
 int motor_drive(enum motor_side side, int duty_permille)
 {
 	if (duty_permille < -1000 || duty_permille > 1000) {
@@ -178,6 +214,10 @@ int motor_drive(enum motor_side side, int duty_permille)
 	return motor_drive_raw(side, scaled);
 }
 
+/**
+ * @brief Latch braking on both wheels until explicitly released.
+ * @return 0 on success, or a negative motor error.
+ */
 int motors_brake(void)
 {
 	k_mutex_lock(&motor_lock, K_FOREVER);
@@ -212,6 +252,11 @@ out:
 	return ret;
 }
 
+/**
+ * @brief Coast both motors while respecting the latched brake.
+ * @param release_brake True to clear braking; false to preserve the latch.
+ * @return 0 on success, -EPERM if braking is preserved, or a driver error.
+ */
 static int stop(bool release_brake)
 {
 	k_mutex_lock(&motor_lock, K_FOREVER);
@@ -231,11 +276,19 @@ static int stop(bool release_brake)
 	return ret;
 }
 
+/**
+ * @brief Disable both enables without overriding a latched brake.
+ * @return 0 on success, -EPERM while braking, or a driver error.
+ */
 int motors_coast(void)
 {
 	return stop(false);
 }
 
+/**
+ * @brief Clear the brake latch into coast without resuming old duty.
+ * @return 0 on success, or a negative motor error.
+ */
 int motors_release_brake(void)
 {
 	return stop(true);
