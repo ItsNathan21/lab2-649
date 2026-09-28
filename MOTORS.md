@@ -82,7 +82,7 @@ after command handling and scheduling are integrated.
 ## First powered test
 
 An opt-in build waits for a fresh press/release of the blue USER button, runs
-the LEFT motor at 20% for 500 ms, then brakes both wheels and prints encoder
+the LEFT motor at 50% for 500 ms, then brakes both wheels and prints encoder
 deltas. It runs once per reset and never starts motion automatically on boot.
 Do not halt the debugger during motion: the CPU must run to execute the stop.
 

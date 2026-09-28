@@ -32,14 +32,14 @@ int motor_test_once(void)
 		return ret;
 	}
 	printk("TEST: wheels raised, ENA/ENB jumpers removed.\n");
-	printk("Press/release BLUE USER: left 20%% for 500 ms, then brake.\n");
+	printk("Press/release BLUE USER: left 50%% for 500 ms, then brake.\n");
 	/* Require a fresh press after boot, with 30 ms debounce at each level. */
 	ret = wait_button(0);
 	if (ret == 0) { ret = wait_button(1); }
 	if (ret == 0) { ret = wait_button(0); }
 	if (ret != 0) { return ret; }
 	encoders_snapshot(&before);
-	ret = motor_drive(MOTOR_LEFT, 200);
+	ret = motor_drive(MOTOR_LEFT, 500);
 	if (ret != 0) { return ret; }
 	/* No printing in the powered interval. Do not halt the debugger here. */
 	k_sleep(K_MSEC(500));
