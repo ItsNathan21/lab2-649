@@ -19,7 +19,14 @@ static K_MUTEX_DEFINE(blinker_lock);
 static K_SEM_DEFINE(blinker_changed, 0, 1);
 static K_THREAD_STACK_DEFINE(blinker_stack, BLINKER_STACK_SIZE);
 static struct k_thread blinker_thread;
+_Static_assert(BLINKER_HAZARD_RATE_HZ > 0U &&
+	       1000U % (2U * BLINKER_HAZARD_RATE_HZ) == 0U, "Invalid hazard rate");
+_Static_assert(BLINKER_CANCEL_DEGREES > 0U && BLINKER_CANCEL_DEGREES < 180U,
+	       "Invalid cancel threshold");
 static bool initialized;
+static bool hazards;
+static bool cancel_armed[BLINKER_COUNT];
+static int64_t hazard_epoch;
 
 /**
  * @brief Apply enable changes and overdue edges for one output while holding the lock.
@@ -77,7 +84,21 @@ static void blinker_worker(void *arg1, void *arg2, void *arg3)
 		int64_t now = k_uptime_get();
 
 		for (enum blinker_side side = BLINKER_LEFT; side < BLINKER_COUNT; side++) {
-			update_output(side, now);
+			if (hazards) {
+				int64_t half = 1000U / (2U * BLINKER_HAZARD_RATE_HZ);
+				bool level = ((now - hazard_epoch) / half % 2) == 0;
+				int ret = gpio_pin_set_dt(&outputs[side], level);
+
+				if (ret != 0) {
+					printk("Hazard GPIO %d failed: %d\n", side, ret);
+				}
+				states[side].active = true;
+				states[side].level = level;
+				states[side].next_edge_ms = hazard_epoch +
+					((now - hazard_epoch) / half + 1) * half;
+			} else {
+				update_output(side, now);
+			}
 			if (states[side].active && states[side].next_edge_ms < deadline) {
 				deadline = states[side].next_edge_ms;
 			}
@@ -132,8 +153,82 @@ int blinker_set(enum blinker_side side, bool enabled)
 		return -ENODEV;
 	}
 	k_mutex_lock(&blinker_lock, K_FOREVER);
-	states[side].enabled = enabled;
+	if (!hazards) {
+		states[side].enabled = enabled;
+		cancel_armed[side] = false;
+	}
 	k_mutex_unlock(&blinker_lock);
 	k_sem_give(&blinker_changed);
 	return 0;
+}
+
+/** @brief Select synchronized hazards and clear normal blinker requests.
+ * @param enabled True to enter the fault indication.
+ * @return 0 on success, or -ENODEV before initialization.
+ */
+int blinker_hazards(bool enabled)
+{
+	if (!initialized) {
+		return -ENODEV;
+	}
+	k_mutex_lock(&blinker_lock, K_FOREVER);
+	if (enabled != hazards) {
+		hazards = enabled;
+		hazard_epoch = k_uptime_get();
+		for (unsigned int side = 0; side < BLINKER_COUNT; side++) {
+			states[side].enabled = false;
+			cancel_armed[side] = false;
+		}
+	}
+	k_mutex_unlock(&blinker_lock);
+	k_sem_give(&blinker_changed);
+	return 0;
+}
+
+/** @brief Toggle a normal indicator without duplicating its state in the receiver.
+ * @param side Indicator to toggle.
+ * @return 0 on success, or a negative argument/state error.
+ */
+int blinker_toggle(enum blinker_side side)
+{
+	if ((unsigned int)side >= BLINKER_COUNT) {
+		return -EINVAL;
+	}
+	if (!initialized) {
+		return -ENODEV;
+	}
+	k_mutex_lock(&blinker_lock, K_FOREVER);
+	if (!hazards) {
+		states[side].enabled = !states[side].enabled;
+		cancel_armed[side] = false;
+	}
+	k_mutex_unlock(&blinker_lock);
+	k_sem_give(&blinker_changed);
+	return 0;
+}
+
+/** @brief Cancel only after entering and leaving the enabled side's turn region.
+ * @param angle_mdeg Estimated logical servo angle relative to center.
+ */
+void blinker_steering(int32_t angle_mdeg)
+{
+	k_mutex_lock(&blinker_lock, K_FOREVER);
+	if (!hazards) {
+		for (unsigned int side = 0; side < BLINKER_COUNT; side++) {
+			int32_t travel = side == BLINKER_LEFT ? -angle_mdeg : angle_mdeg;
+			int32_t threshold = BLINKER_CANCEL_DEGREES * 1000;
+
+			if (!states[side].enabled) {
+				continue;
+			}
+			if (travel > threshold) {
+				cancel_armed[side] = true;
+			} else if (travel < threshold && cancel_armed[side]) {
+				states[side].enabled = false;
+				cancel_armed[side] = false;
+			}
+		}
+	}
+	k_mutex_unlock(&blinker_lock);
+	k_sem_give(&blinker_changed);
 }

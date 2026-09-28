@@ -16,6 +16,9 @@ target_sources(app PRIVATE
   src/motor_controller.c
   src/pedal_control.c
   src/quadrature.c
+  src/servo.c
   src/uart_receiver.c
+  src/uart_protocol.c
+  src/uart_status.c
 )
 target_include_directories(app PRIVATE include)

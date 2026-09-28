@@ -8,6 +8,8 @@
 #include "motor.h"
 #include "motor_controller.h"
 #include "uart_receiver.h"
+#include "uart_status.h"
+#include "servo.h"
 
 /**
  * @brief Initialize drivers and start UART motor control and encoder monitoring.
@@ -33,6 +35,12 @@ int main(void)
 		printk("Blinker initialization failed: %d\n", ret);
 		return ret;
 	}
+	ret = servo_init();
+	if (ret != 0) {
+		printk("Servo initialization failed: %d\n", ret);
+		return ret;
+	}
+	printk("Servo: PA1, trial center=%u us\n", SERVO_CENTER_PULSE_US);
 	ret = motor_controller_start();
 	if (ret != 0) {
 		printk("Speed controller start failed: %d\n", ret);
@@ -42,6 +50,13 @@ int main(void)
 	ret = uart_receiver_start();
 	if (ret != 0) {
 		printk("UART receiver start failed: %d\n", ret);
+		return ret;
+	}
+	ret = uart_status_start();
+	if (ret != 0) {
+		int brake_ret = motor_controller_stop();
+
+		printk("UART status start failed: %d; brake=%d\n", ret, brake_ret);
 		return ret;
 	}
 	ret = encoder_monitor_start();

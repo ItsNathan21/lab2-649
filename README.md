@@ -5,17 +5,17 @@ Throttle requests wheel speed, and independent encoder-feedback PID loops adjust
 PWM for each motor. After a 2% release deadband, throttle maps to 0..120 wheel RPM.
 **120 RPM is an unmeasured initial limit**, editable in `include/motor_controller.h`.
 Brake travel proportionally lowers the request; full brake or released throttle
-commands coast and clears integral buildup. Reverse drive and latched electrical
-braking are not used by the speed controller.
+commands coast and clears integral buildup. Faults and self-test instead apply full
+electrical braking to both motors.
 
 Targets initially rise at 120 RPM/s and decrease immediately. A 50% feedforward
 offset retains the observed starting effort, but it is not a PWM minimum: feedback
 can reduce PWM all the way to zero. The PID adds or removes duty as measured speed
 changes under load, up to the configured PWM limit. It cannot maintain speed if
-the motor lacks sufficient torque or supply power. Steering and non-blinker
-buttons remain unused. PWM remains 10 kHz; the controller runs every 20 ms.
+the motor lacks sufficient torque or supply power. Steering controls the servo; Y controls self-test. PWM remains 10 kHz; the controller runs every 20 ms.
 
-No Pi or packet-format change is needed.
+**Update both the Pi receiver and STM firmware together: the framed UART protocol
+is incompatible with the old raw eight-byte sender.** The wheel GUI UDP format is unchanged.
 
 ## 1. Attach ST-LINK to WSL
 
@@ -51,7 +51,7 @@ If the console device differs, check `ls /dev/ttyACM*`. Exit miniterm with Ctrl+
 On the Pi, from this repository's `pi/proxy_receiver` directory:
 
 ```bash
-gcc -std=c11 -Wall -Wextra -O2 receiver.c -o proxy_receiver
+gcc -std=c11 -Wall -Wextra -O2 -I../../include receiver.c ../../src/uart_protocol.c -o proxy_receiver
 hostname -I
 ./proxy_receiver /dev/serial0
 ```
@@ -62,13 +62,14 @@ the resolved device at startup. Use only one forwarder at a time.
 
 Configure the laptop wheel GUI to send to the Pi's reachable IP from `hostname -I`,
 UDP port **8000**, then start sending. Start with the throttle released and wheels
-raised. The STM32 must be running before the Pi starts forwarding bytes.
+raised. Either endpoint may start first; drive stays braked until both links and wheel input are fresh.
 
-The Pi prints each decoded UDP packet and the eight bytes written to UART.
+The Pi prints each decoded UDP packet and a heartbeat/fault summary twice per second.
+Diagnostic output is nonblocking, so a stalled terminal can drop log lines without
+stalling UART traffic.
 The STM32 prints lines such as:
 
 ```text
-Throttle=32767 brake=32767 request=0 mRPM (both motors)
 PID target=... mRPM L=... mRPM duty=.../1000 R=... mRPM duty=.../1000
 ENC L=... (... cps, ... mRPM) R=... (... cps, ... mRPM) invalid=0/0 read_errors=0
 ```
@@ -90,6 +91,7 @@ Use STM32 GPIO labels, not similarly named Arduino RX/TX labels.
 | Right encoder A / B | PC2 / PC3 |
 | Left blinker output | PC8 |
 | Right blinker output | PC10 |
+| Steering servo signal | PA1 / TIM2 channel 2 |
 
 Left motor connects to **OUT1/OUT2**, right motor to **OUT3/OUT4**.
 Remove **ENA/ENB jumpers** when using PWM; use 10 kohm enable pull-downs to ground.
@@ -98,8 +100,17 @@ from its own supply. The module's regulator jumper is separate from ENA/ENB;
 follow its supply requirements. UART and encoder signals must be 3.3 V compatible.
 
 USART1 uses 115200 baud, 8N1, no flow control. Debug prints use USART2 through
-ST-LINK USB. UART carries exactly eight little-endian bytes: signed 16-bit
-steering, throttle, brake, then an unsigned 16-bit button mask (bits 0-5, 8, 9).
+ST-LINK USB. Both directions use 16-byte frames: sync A5 5A, type, flags,
+little-endian 16-bit sequence, eight payload bytes, then little-endian CRC-16/CCITT-FALSE
+over the first 14 bytes. Command type is 0x11; status type is 0x12.
+The command payload remains signed 16-bit steering, throttle, brake, then an unsigned
+16-bit button mask (bits 0-5, 8, 9), all little-endian. Status payload is reserved/zero.
+Command flags: bit 0 = fresh wheel input; bit 1 = fresh STM heartbeat.
+Status flags: 0x01 link timeout, 0x02 stale source/return link, 0x04 self-test,
+0x08 hardware/PID fault. Zero means normal. Sequences wrap modulo 65536;
+duplicates/backward frames cannot refresh a live connection. After timeout, a new
+sequence baseline permits endpoint restart. CRC and sliding synchronization reject
+corrupt frames and recover alignment without resetting.
 
 ## PID tuning
 
@@ -139,34 +150,90 @@ under forward drive. Raw `ENC` logs still show negative left counts; normalized
 The initial gains are placeholders, not hardware-tuned values. The console uses
 millirpm (`60000 mRPM = 60 RPM`) and duty-permille (`500/1000 = 50%`).
 
+## Steering servo
+
+Connect the servo signal to **PA1**, with servo supply ground connected to STM32 GND.
+Use a supply suited to the servo's rating; do not power the servo from a GPIO.
+The servo is a Hiwonder LD-1501MG positional servo. Its specified pulse range is
+500..2500 us for 0..180 degrees. Check full travel with the linkage disconnected;
+the chassis can require narrower limits than the servo itself.
+
+The module starts centered and maps wheel input as follows:
+
+| Wheel input | Default pulse |
+| --- | --- |
+| -32768 (left) | 500 us |
+| 0 (center) | 1500 us |
+| 32767 (right) | 2500 us |
+
+Edit pulse limits and `SERVO_REVERSED` in `include/servo.h` to match linkage travel.
+The repetition period is set to 20 ms (50 Hz) in the overlay's `steering_servo.pwms`.
+TIM2 is separate from the motors' TIM3, so steering updates do not change motor PWM.
+The Windows `proxy_gui.py` now requests and verifies 900 degrees of G920 operating
+range on connect. Restart that GUI to apply it. The wheel has 450 degrees per side
+from center; that entire input range maps monotonically to the configured servo
+pulse range. The STM32 mapping was already monotonic and needs no firmware change
+for this wheel-range correction. If steering raw values plateau at -32768/32767
+before physical lock, correct the driver range/calibration; firmware cannot recover
+position beyond a saturated input. If raw values continue changing but the servo
+stops moving, check servo/linkage travel instead.
+
+Hardware generates the pulses continuously; no extra servo thread is needed.
+UART passes the latest validated steering value to `servo_set_steering()`. UART
+fail-safe disables the signal rather than commanding a sudden recenter; behavior
+without pulses depends on the servo. Fresh steering resumes after recovery.
+
 ## Blinkers
 
 Press left blinker (button 5) or right blinker (button 4) once to enable that side;
 press again to disable it. Holding a button does not repeatedly toggle it.
-Both sides can blink independently. Each starts on, then alternates 250 ms on and
-250 ms off (2 Hz, 50% duty). Change `BLINKER_RATE_HZ` in `include/blinker.h` to
+Both sides can blink independently. Each starts on, then alternates 500 ms on and
+500 ms off (1 Hz, 50% duty). Change `BLINKER_RATE_HZ` in `include/blinker.h` to
 adjust the rate; use a value that divides 500 for whole-millisecond half-periods.
 
 PC8 drives the left LED group and PC10 the right, active high. Keep these output
 pins separate; share ground, not the outputs. Use suitable LED current limiting
 and a transistor driver if a group exceeds the GPIO current rating.
-UART sends only enable/disable requests to the module. A UART control fault or
-timeout turns both blinkers off along with stopping motor control.
+The module owns toggle state. An enabled side arms auto-cancel when its estimated
+servo angle exceeds `BLINKER_CANCEL_DEGREES` (initially 10 degrees from center on
+that side), then turns off when the angle returns below that threshold. Equality
+does not count as a crossing. This uses commanded PWM angle, not measured servo
+feedback. Toggle again normally after cancellation.
+
+During a fault, both GPIO banks flash together at **2 Hz, 50% duty**; this overrides
+and clears normal selections. Configure `BLINKER_HAZARD_RATE_HZ` separately from
+normal `BLINKER_RATE_HZ` in `include/blinker.h`.
 
 ## Stopping and restarting
 
-Released throttle commands coast. After the first command, 150 ms without a fresh
-complete packet coasts both motors and disables reception until reset. Detected
-UART errors, queue overflow, or invalid button bits also stop control.
-The PID also coasts both motors and latches off on an encoder read fault, excessive
-invalid transitions, a control timing gap, sustained reverse feedback, or a stall.
-Initially, stall detection means at least 5 RPM demand, at least 50% duty, and less
-than 2 RPM measured speed for 1.5 seconds. These are tuning defaults, not current
-or thermal protection. A disconnected encoder can trigger the same stop.
-To restart: stop the Pi forwarder, reset STM32, then restart forwarding.
-The packet format has no sync marker or checksum; it cannot detect every corrupt
-or misaligned packet. Releasing throttle is the normal stop for this iteration;
-full brake also commands coast.
+Released throttle and full brake normally request zero speed/coast. A fault instead
+sets both bridge inputs low with full enable: **electrical braking**, not coasting.
+
+- Pi commands and STM status heartbeats run every **20 ms**, including during faults.
+- **60 ms without a valid advancing command** (three missed updates) triggers fail-safe.
+  The receiver checks every 5 ms; the PID also has an independent command watchdog.
+- The Pi marks wheel input stale after **100 ms** without a valid advancing UDP packet
+  (`PI_WHEEL_TIMEOUT_MS`). It marks the return link stale after three missed STM statuses.
+  These unhealthy commands keep the connection alive but cannot drive actuators.
+- Press **Y (button 3)** once to latch self-test immediately: brakes and hazards.
+  Two distinct press edges within **500 ms**, with a release between, clear self-test.
+  The first edge is never delayed to wait for a possible second edge. Once a pair
+  completes, a third press starts a new single press.
+- Reconnecting automatically clears link/source faults. Current throttle, brake,
+  and steering are applied from a fresh healthy packet, with the existing PID
+  acceleration ramp. **Pedal release is not required.** Commands received during a
+  fault are not applied or saved for later replay; only Y edges remain actionable.
+- A double press cannot override an active link or hardware fault. Self-test stays
+  latched across reconnect until cleared by a double press.
+- Encoder/PID/driver faults still require reset. They request brakes and hazards;
+  a failed output driver may prevent physical braking and needs investigation.
+
+The STM heartbeat has a dedicated priority-2 worker with an absolute schedule.
+The 20 ms +/-10% heartbeat and under-100 ms brake/hazard response are timing targets
+to verify on hardware, including under load; they have not been measured here.
+Monitor PB6 on a scope for 18..22 ms frame spacing. Unplug/reconnect either UART
+direction and check braking/hazards and recovery. Check Y single/double presses and
+both auto-cancel directions. No build or flash is performed by these instructions.
 
 If a wheel runs backward, change its `polarity[]` in `src/motor.c`, or swap its
 OUT leads with power disconnected. Encoder direction is set separately by
@@ -198,8 +265,11 @@ Continue past startup before restarting the Pi sender; prints appear in miniterm
 ## Source map
 
 - `src/blinker.c`, `include/blinker.h`: GPIO blinker worker and timing configuration.
+- `src/servo.c`, `include/servo.h`: steering PWM mapping and pulse calibration.
 - `src/main.c`: initialize drivers and start UART motor control and encoder monitoring.
-- `src/uart_receiver.c`: UART reception, speed requests, blinkers, and link timeout.
+- `src/uart_receiver.c`: commands, self-test, fault arbitration, and automatic recovery.
+- `src/uart_status.c`, `include/uart_status.h`: independent 20 ms status worker.
+- `src/uart_protocol.c`, `include/uart_protocol.h`: framing shared by STM and Pi.
 - `src/pedal_control.c`, `include/pedal_control.h`: pedal deadband and speed-request mapping.
 - `src/motor_controller.c`, `include/motor_controller.h`: speed PID worker and all PID tuning.
 - `src/encoder_monitor.c`: periodic encoder reporting.

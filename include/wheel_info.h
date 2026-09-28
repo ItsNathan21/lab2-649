@@ -86,7 +86,8 @@
 
 /*
  * Wheel information sent from the Pi to the STM32 over UART.
- * Wire layout: 8 bytes, in field order, all fields little-endian.
+ * Command payload: 8 bytes, in field order, all fields little-endian.
+ * uart_protocol.h adds the framing, sequence, and checksum around this payload.
  * Packed prevents compiler padding; it does not convert byte order.
  */
 struct wheel_info {

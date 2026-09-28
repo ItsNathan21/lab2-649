@@ -53,6 +53,7 @@ static K_THREAD_STACK_DEFINE(controller_stack, MOTOR_PID_STACK_SIZE);
 static struct k_thread controller_thread;
 static bool started;
 static bool faulted;
+static bool inhibited;
 static bool have_command;
 static uint32_t requested_mrpm;
 static uint32_t ramped_mrpm;
@@ -85,16 +86,16 @@ static void reset_drive(void)
 }
 
 /**
- * @brief Latch a fault and coast both outputs while holding controller_lock.
+ * @brief Latch a fault and brake both outputs while holding controller_lock.
  * @param reason Short diagnostic describing why control stopped.
  */
 static void stop_on_fault(const char *reason)
 {
 	faulted = true;
 	reset_drive();
-	int ret = motors_coast();
+	int ret = motors_brake();
 
-	printk("PID stopped: %s; coast=%d. Reset to restart.\n", reason, ret);
+	printk("PID stopped: %s; brake=%d. Reset to restart.\n", reason, ret);
 }
 
 /**
@@ -163,7 +164,16 @@ static void controller_worker(void *arg1, void *arg2, void *arg3)
 			return;
 		}
 		if (have_command && k_uptime_get() - command_ms >= MOTOR_PID_COMMAND_TIMEOUT_MS) {
-			stop_on_fault("UART command timeout");
+			inhibited = true;
+			have_command = false;
+			reset_drive();
+			if (motors_brake() != 0) {
+				stop_on_fault("timeout brake failed");
+			}
+			previous = sample;
+			next_ms = sample.timestamp_ms;
+			k_mutex_unlock(&controller_lock);
+			continue;
 		}
 		if (!faulted && sample.read_errors != previous.read_errors) {
 			stop_on_fault("encoder GPIO read error");
@@ -191,7 +201,9 @@ static void controller_worker(void *arg1, void *arg2, void *arg3)
 				(derivative - state->derivative_mrpm_per_s) * elapsed /
 				(MOTOR_PID_D_FILTER_MS + elapsed);
 		}
-		if (!faulted && (!have_command || requested_mrpm == 0U)) {
+		if (!faulted && inhibited) {
+			reset_drive();
+		} else if (!faulted && (!have_command || requested_mrpm == 0U)) {
 			reset_drive();
 			if (motors_coast() != 0) {
 				stop_on_fault("motor coast failed");
@@ -298,6 +310,16 @@ int motor_controller_set_target(uint32_t target_mrpm, int64_t received_ms)
 		   (have_command && received_ms < command_ms)) {
 		ret = -ESTALE;
 	} else {
+		if (inhibited) {
+			ret = motors_release_brake();
+			if (ret != 0) {
+				faulted = true;
+				k_mutex_unlock(&controller_lock);
+				return ret;
+			}
+			inhibited = false;
+			reset_drive();
+		}
 		requested_mrpm = target_mrpm;
 		command_ms = received_ms;
 		have_command = true;
@@ -314,16 +336,51 @@ int motor_controller_set_target(uint32_t target_mrpm, int64_t received_ms)
 }
 
 /**
- * @brief Permanently disable speed control for this boot and coast both outputs.
- * @return 0 on successful coast, or a negative motor-driver error.
+ * @brief Permanently disable speed control for this boot and brake both outputs.
+ * @return 0 on successful brake, or a negative motor-driver error.
  */
 int motor_controller_stop(void)
 {
 	k_mutex_lock(&controller_lock, K_FOREVER);
 	faulted = true;
 	reset_drive();
-	int ret = motors_coast();
+	int ret = motors_brake();
 
 	k_mutex_unlock(&controller_lock);
 	return ret;
+}
+
+/**
+ * @brief Temporarily brake both motors without terminating the PID worker.
+ * @return 0 on success, or a negative motor-driver error.
+ */
+int motor_controller_inhibit(void)
+{
+	k_mutex_lock(&controller_lock, K_FOREVER);
+	int ret = 0;
+
+	if (!inhibited) {
+		inhibited = true;
+		have_command = false;
+		reset_drive();
+		ret = motors_brake();
+		if (ret != 0) {
+			faulted = true;
+		}
+	}
+	k_mutex_unlock(&controller_lock);
+	return ret;
+}
+
+/**
+ * @brief Query permanent PID or driver failure from thread context.
+ * @return True when a reset is required.
+ */
+bool motor_controller_faulted(void)
+{
+	k_mutex_lock(&controller_lock, K_FOREVER);
+	bool result = faulted;
+
+	k_mutex_unlock(&controller_lock);
+	return result;
 }

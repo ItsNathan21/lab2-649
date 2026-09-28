@@ -6,13 +6,14 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "uart_protocol.h"
 
 /** @brief Full-throttle wheel speed; 120 RPM is an unmeasured initial tuning value. */
 #define MOTOR_PID_MAX_RPM 120U
 /** @brief Update at 50 Hz; 20 ms is the initial control-loop sampling period. */
 #define MOTOR_PID_PERIOD_MS 20U
-/** @brief Expire commands after 150 ms, preserving the existing UART link timeout. */
-#define MOTOR_PID_COMMAND_TIMEOUT_MS 150U
+/** @brief Expire commands after three missed 20 ms updates, matching the UART watchdog. */
+#define MOTOR_PID_COMMAND_TIMEOUT_MS UART_LINK_TIMEOUT_MS
 /** @brief Raise target speed by 120 RPM/s initially; decreases bypass this ramp. */
 #define MOTOR_PID_ACCEL_RPM_PER_SEC 120U
 /** @brief Speed low-pass time constant; 80 ms initially smooths encoder quantization. */
@@ -70,7 +71,7 @@
 #define MOTOR_PID_PRINT_MS 200U
 /** @brief Stack bytes; 2048 is an initial budget for PID math and diagnostics. */
 #define MOTOR_PID_STACK_SIZE 2048
-/** @brief Priority 4 runs speed control above priority-5 UART processing. */
+/** @brief Priority 4 runs PID below priority-3 fault handling and above routine reporting. */
 #define MOTOR_PID_PRIORITY 4
 
 /** @brief Fixed-point gains; each real gain is multiplied by 1000. */
@@ -105,9 +106,20 @@ int motor_controller_start(void);
 int motor_controller_set_target(uint32_t target_mrpm, int64_t received_ms);
 
 /**
- * @brief Latch the controller off and coast both motors; reset is required to restart.
- * @return 0 on successful coast, or a negative motor-driver error.
+ * @brief Latch the controller off and brake both motors; reset is required to restart.
+ * @return 0 on successful brake, or a negative motor-driver error.
  */
 int motor_controller_stop(void);
+
+/**
+ * @brief Temporarily brake; a fresh accepted target releases this inhibition.
+ * @return 0 on success, or a negative motor-driver error.
+ */
+int motor_controller_inhibit(void);
+/**
+ * @brief Query whether a permanent controller or motor fault needs reset.
+ * @return True for a latched hardware/PID fault.
+ */
+bool motor_controller_faulted(void);
 
 #endif /* MOTOR_CONTROLLER_H_ */

@@ -1,0 +1,8 @@
+description: Steering servo driven by a dedicated hardware PWM channel
+compatible: "lab,steering-servo"
+include: base.yaml
+properties:
+  pwms:
+    type: phandle-array
+    required: true
+    description: PWM channel and servo repetition period

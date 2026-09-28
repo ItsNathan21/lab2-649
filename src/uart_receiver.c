@@ -1,240 +1,219 @@
 /** @file uart_receiver.c
- * @brief USART1 pedal and blinker command receiver.
+ * @brief UART commands remain receivable during recoverable fail-safe conditions.
  */
 #include <errno.h>
-#include <stdbool.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
-#include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/printk.h>
-
-#include "blinker.h"
-#include "wheel_info.h"
 #include "uart_receiver.h"
+#include "blinker.h"
 #include "motor_controller.h"
 #include "pedal_control.h"
+#include "servo.h"
 
 static const struct device *const wheel_uart = DEVICE_DT_GET(DT_NODELABEL(usart1));
-
 K_MSGQ_DEFINE_STATIC(wheel_rx_queue, sizeof(struct wheel_rx_packet), WHEEL_RX_QUEUE_SIZE, 8);
 static K_THREAD_STACK_DEFINE(receiver_stack, WHEEL_RX_STACK_SIZE);
 static struct k_thread receiver_thread;
+static atomic_t fault_bits = ATOMIC_INIT(UART_FAULT_LINK);
+static atomic_t receive_error;
 static bool started;
-static atomic_t wheel_rx_fault;
 
-/**
- * @brief Queue complete UART packets and latch receive faults.
+/** @brief Parse complete frames in the ISR; corruption cannot refresh the watchdog.
  * @param dev USART1 device.
- * @param user_data Callback context; unused.
+ * @param user_data Unused callback context.
  */
 static void wheel_uart_callback(const struct device *dev, void *user_data)
 {
-	static struct wheel_rx_packet packet;
-	static size_t received;
+	static struct uart_parser parser;
+	struct wheel_rx_packet packet;
 	uint8_t byte;
 
 	ARG_UNUSED(user_data);
 	uart_irq_update(dev);
-
-	/* A lost/corrupt byte destroys alignment in the fixed-size wire format. */
 	if (uart_err_check(dev) != 0) {
-		atomic_set(&wheel_rx_fault, 1);
-		uart_irq_rx_disable(dev);
-		return;
+		parser.used = 0;
+		atomic_set(&receive_error, 1);
 	}
 	if (uart_irq_rx_ready(dev) == 0) {
 		return;
 	}
 	while (uart_fifo_read(dev, &byte, 1) == 1) {
-		packet.bytes[received++] = byte;
-		if (received == sizeof(packet.bytes)) {
+		if (uart_frame_feed(&parser, byte, &packet.frame) &&
+		    packet.frame.type == UART_FRAME_COMMAND) {
 			packet.timestamp_ms = k_uptime_get();
 			if (k_msgq_put(&wheel_rx_queue, &packet, K_NO_WAIT) != 0) {
-				atomic_set(&wheel_rx_fault, 1);
-				uart_irq_rx_disable(dev);
-				return;
+				atomic_set(&receive_error, 1);
 			}
-			received = 0;
 		}
 	}
 }
 
-/**
- * @brief Toggle indicator enable states on button press edges, never on held packets.
- * @param buttons Validated wheel button bitmask from one packet in arrival order.
- * @return 0 on success, or a negative blinker API error.
+/** @brief Apply braking and hazards before publishing an error state.
+ * @param faults Current reason mask; hardware failures become latched.
  */
-static int update_blinker_buttons(uint16_t buttons)
+static void apply_faults(uint8_t faults)
 {
-	static uint16_t previous_buttons;
-	static bool left_enabled;
-	static bool right_enabled;
-	uint16_t pressed = buttons & (uint16_t)~previous_buttons;
-	int ret;
+	if (faults != 0U) {
+		int motor_ret = motor_controller_inhibit();
+		int servo_ret = servo_disable();
 
-	previous_buttons = buttons;
-	if ((pressed & WHEEL_BUTTON_LEFT_BLINKER) != 0U) {
-		left_enabled = !left_enabled;
-		ret = blinker_set(BLINKER_LEFT, left_enabled);
-		if (ret != 0) {
-			return ret;
+		if (motor_ret != 0 || servo_ret != 0) {
+			faults |= UART_FAULT_HARDWARE;
 		}
 	}
-	if ((pressed & WHEEL_BUTTON_RIGHT_BLINKER) != 0U) {
-		right_enabled = !right_enabled;
-		ret = blinker_set(BLINKER_RIGHT, right_enabled);
-		if (ret != 0) {
-			return ret;
-		}
+	if (blinker_hazards(faults != 0U) != 0) {
+		faults |= UART_FAULT_HARDWARE;
 	}
-	return 0;
+	atomic_set(&fault_bits, faults);
 }
 
-/**
- * @brief Forward fresh speed requests and blinker commands until a fault.
- * @param arg1 Unused Zephyr thread argument.
- * @param arg2 Unused Zephyr thread argument.
- * @param arg3 Unused Zephyr thread argument.
+/** @brief Supervise reception and dispatch only current, healthy actuator commands.
+ * @param arg1 Unused thread argument.
+ * @param arg2 Unused thread argument.
+ * @param arg3 Unused thread argument.
  */
-static void wheel_receiver_thread(void *arg1, void *arg2, void *arg3)
+static void receiver_worker(void *arg1, void *arg2, void *arg3)
 {
-	struct wheel_rx_packet packet;
-	int64_t last_packet_ms = 0;
-	int64_t last_print_ms = -WHEEL_RX_PRINT_MS;
-	uint32_t target_mrpm = 0U;
-	struct wheel_info wheel = {
-		.throttle = WHEEL_THROTTLE_RELEASED,
-		.brake = WHEEL_BRAKE_RELEASED,
-	};
-	bool have_packet = false;
-	const char *stop_reason = "motor output error";
-	int ret;
+	int64_t last_packet = -(int64_t)UART_LINK_TIMEOUT_MS;
+	int64_t first_press = -1;
+	uint16_t previous_buttons = 0;
+	uint16_t last_sequence = 0;
+	uint8_t source_flags = 0;
+	bool self_test = false;
+	bool sequence_known = false;
+	bool hardware_fault = false;
 
 	ARG_UNUSED(arg1);
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
+	while (true) {
+		struct wheel_rx_packet packet;
+		bool received = k_msgq_get(&wheel_rx_queue, &packet,
+					  K_MSEC(WHEEL_RX_POLL_MS)) == 0;
+		int64_t now = k_uptime_get();
+		uint16_t rising = 0;
+		struct wheel_info wheel = {0};
 
-	if (!device_is_ready(wheel_uart)) {
-		printk("USART1 is not ready; motors remain in coast\n");
-		return;
-	}
-	ret = uart_irq_callback_user_data_set(wheel_uart, wheel_uart_callback, NULL);
-	if (ret != 0) {
-		printk("USART1 callback setup failed: %d\n", ret);
-		return;
-	}
-
-	printk("Pedals: USART1 115200, both motors; brake reduces target speed\n");
-	uart_irq_rx_enable(wheel_uart);
-
-	while (1) {
-		/* Short waits also notice ISR faults when no complete packet arrives. */
-		int64_t remaining =
-			have_packet ? WHEEL_LINK_TIMEOUT_MS - (k_uptime_get() - last_packet_ms)
-				    : WHEEL_RX_POLL_MS;
-
-		if (remaining <= 0) {
-			stop_reason = "UART command timeout";
-			break;
+		if (atomic_set(&receive_error, 0) != 0) {
+			k_msgq_purge(&wheel_rx_queue);
+			received = false;
+			last_packet = now - UART_LINK_TIMEOUT_MS;
 		}
-		ret = k_msgq_get(&wheel_rx_queue, &packet, K_MSEC(MIN(remaining, WHEEL_RX_POLL_MS)));
-		if (atomic_get(&wheel_rx_fault) != 0) {
-			stop_reason = "UART error or RX queue overflow";
-			break;
+		if (now - last_packet >= UART_LINK_TIMEOUT_MS) {
+			sequence_known = false;
+			first_press = -1;
 		}
-		if (ret == 0) {
-			/* Inspect every queued button edge; only the newest pedals set speed. */
-			bool packet_fault = false;
+		if (received) {
+			struct uart_frame *frame = &packet.frame;
+			uint16_t advance = frame->sequence - last_sequence;
+			uint16_t buttons = uart_get_u16(frame->payload + 6);
 
-			for (size_t i = 0; i < WHEEL_RX_QUEUE_SIZE; i++) {
-				if (atomic_get(&wheel_rx_fault) != 0) {
-					stop_reason = "UART error or RX queue overflow";
-					packet_fault = true;
-					break;
-				}
-				if (k_uptime_get() - packet.timestamp_ms >= WHEEL_LINK_TIMEOUT_MS) {
-					stop_reason = "stale UART command";
-					packet_fault = true;
-					break;
-				}
-				wheel = (struct wheel_info) {
-					.steering = (int16_t)sys_get_le16(&packet.bytes[0]),
-					.throttle = (int16_t)sys_get_le16(&packet.bytes[2]),
-					.brake = (int16_t)sys_get_le16(&packet.bytes[4]),
-					.buttons = sys_get_le16(&packet.bytes[6]),
-				};
-				if ((wheel.buttons & ~WHEEL_BUTTONS_MASK) != 0U) {
-					stop_reason = "invalid button bits / packet alignment";
-					packet_fault = true;
-					break;
-				}
-				ret = update_blinker_buttons(wheel.buttons);
-				if (ret != 0) {
-					stop_reason = "blinker command failed";
-					packet_fault = true;
-					break;
-				}
-				if (i + 1U == WHEEL_RX_QUEUE_SIZE ||
-				    k_msgq_get(&wheel_rx_queue, &packet, K_NO_WAIT) != 0) {
-					break;
+			received = now - packet.timestamp_ms < UART_LINK_TIMEOUT_MS &&
+				(!sequence_known || (advance != 0U && advance < 0x8000U)) &&
+				(buttons & ~WHEEL_BUTTONS_MASK) == 0U &&
+				(frame->flags & ~UART_COMMAND_READY) == 0U;
+			if (received) {
+				sequence_known = true;
+				last_sequence = frame->sequence;
+				last_packet = packet.timestamp_ms;
+				source_flags = frame->flags;
+				wheel.steering = (int16_t)uart_get_u16(frame->payload);
+				wheel.throttle = (int16_t)uart_get_u16(frame->payload + 2);
+				wheel.brake = (int16_t)uart_get_u16(frame->payload + 4);
+				wheel.buttons = buttons;
+				if ((source_flags & UART_COMMAND_WHEEL_FRESH) != 0U) {
+					rising = buttons & ~previous_buttons;
+					previous_buttons = buttons;
+					if ((rising & WHEEL_BUTTON_Y) != 0U) {
+						if (first_press >= 0 &&
+						    last_packet - first_press <=
+							WHEEL_SELF_TEST_DOUBLE_MS) {
+							self_test = false;
+							first_press = -1;
+						} else {
+							self_test = true;
+							first_press = last_packet;
+						}
+					}
+				} else {
+					first_press = -1;
 				}
 			}
-			if (packet_fault || atomic_get(&wheel_rx_fault) != 0) {
-				if (!packet_fault) {
-					stop_reason = "UART error or RX queue overflow";
-				}
-				break;
-			}
-			target_mrpm = pedal_control_target(wheel.throttle, wheel.brake);
-			ret = motor_controller_set_target(target_mrpm, packet.timestamp_ms);
-			if (ret != 0) {
-				stop_reason = "speed controller rejected command";
-				break;
-			}
-			last_packet_ms = packet.timestamp_ms;
-			have_packet = true;
 		}
-		if (!have_packet) {
+		hardware_fault |= motor_controller_faulted() ||
+			(uart_receiver_faults() & UART_FAULT_HARDWARE) != 0U;
+		uint8_t faults = hardware_fault ? UART_FAULT_HARDWARE : 0U;
+
+		if (now - last_packet >= UART_LINK_TIMEOUT_MS) {
+			faults |= UART_FAULT_LINK;
+		}
+		if (source_flags != UART_COMMAND_READY) {
+			faults |= UART_FAULT_SOURCE;
+		}
+		if (self_test) {
+			faults |= UART_FAULT_SELF_TEST;
+		}
+		apply_faults(faults);
+		if (!received || uart_receiver_faults() != 0U) {
 			continue;
 		}
-		int64_t now = k_uptime_get();
+		/* Recovery uses this fresh packet, never a saved pre-fault drive command. */
+		int ret = servo_set_steering(wheel.steering);
 
-		/* Retain the receiver watchdog as well as the independent PID watchdog. */
-		if (now - last_packet_ms >= WHEEL_LINK_TIMEOUT_MS) {
-			stop_reason = "UART command timeout";
-			break;
+		if (ret == 0) {
+			ret = motor_controller_set_target(
+				pedal_control_target(wheel.throttle, wheel.brake),
+				packet.timestamp_ms);
 		}
-		if (now - last_print_ms >= WHEEL_RX_PRINT_MS) {
-			printk("Throttle=%d brake=%d request=%u mRPM (both motors)\n",
-			       (int)wheel.throttle, (int)wheel.brake, target_mrpm);
-			last_print_ms = now;
+		if (ret == 0 && (rising & WHEEL_BUTTON_LEFT_BLINKER) != 0U) {
+			ret = blinker_toggle(BLINKER_LEFT);
+		}
+		if (ret == 0 && (rising & WHEEL_BUTTON_RIGHT_BLINKER) != 0U) {
+			ret = blinker_toggle(BLINKER_RIGHT);
+		}
+		if (ret != 0) {
+			apply_faults(UART_FAULT_HARDWARE);
+			printk("Actuator update failed: %d; reset required\n", ret);
+		} else {
+			blinker_steering(servo_angle_mdeg(wheel.steering));
 		}
 	}
-
-	uart_irq_rx_disable(wheel_uart);
-	ret = motor_controller_stop();
-	int left_ret = blinker_set(BLINKER_LEFT, false);
-	int right_ret = blinker_set(BLINKER_RIGHT, false);
-
-	if (left_ret != 0 || right_ret != 0) {
-		printk("Blinker shutdown failed: left=%d right=%d\n", left_ret, right_ret);
-	}
-	printk("Throttle stopped: %s; coast=%d. Reset to restart reception.\n", stop_reason, ret);
 }
 
-/**
- * @brief Start the UART worker once after the drivers are initialized.
- * @return 0 when started, or -EALREADY if already started.
+/** @brief Initialize the UART and recoverable fail-safe before starting reception.
+ * @return 0 on success, or a negative driver/state error.
  */
 int uart_receiver_start(void)
 {
 	if (started) {
 		return -EALREADY;
 	}
+	if (!device_is_ready(wheel_uart)) {
+		return -ENODEV;
+	}
+	apply_faults(UART_FAULT_LINK);
+	if ((uart_receiver_faults() & UART_FAULT_HARDWARE) != 0U) {
+		return -EIO;
+	}
+	int ret = uart_irq_callback_user_data_set(wheel_uart, wheel_uart_callback, NULL);
+
+	if (ret != 0) {
+		return ret;
+	}
 	started = true;
+	uart_irq_rx_enable(wheel_uart);
 	k_thread_create(&receiver_thread, receiver_stack, K_THREAD_STACK_SIZEOF(receiver_stack),
-			wheel_receiver_thread, NULL, NULL, NULL, WHEEL_RX_PRIORITY, 0, K_NO_WAIT);
+			receiver_worker, NULL, NULL, NULL, WHEEL_RX_PRIORITY, 0, K_NO_WAIT);
 	return 0;
+}
+
+/** @brief Snapshot the current reason mask for the heartbeat.
+ * @return UART_FAULT_* bitmask.
+ */
+uint8_t uart_receiver_faults(void)
+{
+	return (uint8_t)atomic_get(&fault_bits);
 }

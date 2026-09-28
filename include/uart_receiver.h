@@ -1,42 +1,41 @@
 /** @file uart_receiver.h
- * @brief UART receiver API and constants.
+ * @brief Framed command reception, self-test, and link fail-safe.
  */
 #ifndef UART_RECEIVER_H_
 #define UART_RECEIVER_H_
-
 #include <stdint.h>
+#include "uart_protocol.h"
 #include "wheel_info.h"
-#include "motor_controller.h"
 
-/** @brief Stack bytes; 1536 is the initial budget, not a measured maximum. */
-#define WHEEL_RX_STACK_SIZE   1536
-/** @brief Preemptive priority 5 keeps command handling above routine reporting. */
-#define WHEEL_RX_PRIORITY     5
-/** @brief Buffer 16 packets to tolerate short scheduling delays; initial chosen capacity. */
-#define WHEEL_RX_QUEUE_SIZE   16
-/** @brief Stop after 150 ms without a fresh command, allowing about two sender periods. */
-#define WHEEL_LINK_TIMEOUT_MS MOTOR_PID_COMMAND_TIMEOUT_MS
-/** @brief Check receive faults at least every 20 ms; initial chosen polling interval. */
-#define WHEEL_RX_POLL_MS 20
-/** @brief Limit throttle logging to 10 Hz to reduce console traffic. */
-#define WHEEL_RX_PRINT_MS 100
-/** @brief Accept only the eight recorded wheel buttons to reject invalid packet bits. */
+/** @brief Stack bytes; 2048 is an initial budget for command handling and diagnostics. */
+#define WHEEL_RX_STACK_SIZE 2048
+/** @brief Priority 3 handles faults ahead of motor PID and reporting threads. */
+#define WHEEL_RX_PRIORITY 3
+/** @brief Sixteen complete frames tolerate short scheduling delays. */
+#define WHEEL_RX_QUEUE_SIZE 16
+/** @brief A 5 ms watchdog check leaves margin below the 100 ms fail-safe deadline. */
+#define WHEEL_RX_POLL_MS 5
+/** @brief Two distinct Y press edges within 500 ms constitute a double press. */
+#define WHEEL_SELF_TEST_DOUBLE_MS 500
+/** @brief Accept only the eight recorded wheel buttons. */
 #define WHEEL_BUTTONS_MASK \
 	(WHEEL_BUTTON_A | WHEEL_BUTTON_B | WHEEL_BUTTON_X | WHEEL_BUTTON_Y | \
 	 WHEEL_BUTTON_RIGHT_BLINKER | WHEEL_BUTTON_LEFT_BLINKER | \
 	 WHEEL_BUTTON_RSB | WHEEL_BUTTON_LSB)
 
-/** @brief Queued wire bytes with their ISR reception time for freshness checks. */
+/** @brief Complete validated frame with its ISR reception timestamp. */
 struct wheel_rx_packet {
-	uint8_t bytes[sizeof(struct wheel_info)];
+	struct uart_frame frame;
 	int64_t timestamp_ms;
 };
-
 /**
- * @brief Start UART command reception once, after the speed controller is started.
- * Call from main only; a receive fault stops the worker until reset.
- * @return 0 when started, or -EALREADY if already started.
+ * @brief Initialize UART reception in fail-safe until fresh commands arrive.
+ * @return 0 on success, or a negative device/driver/state error.
  */
 int uart_receiver_start(void);
-
+/**
+ * @brief Read the fault bitmask without blocking the status heartbeat worker.
+ * @return UART_FAULT_* bits; zero means normal.
+ */
+uint8_t uart_receiver_faults(void);
 #endif /* UART_RECEIVER_H_ */
