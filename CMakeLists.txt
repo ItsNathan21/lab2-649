@@ -1,4 +1,9 @@
 cmake_minimum_required(VERSION 3.20.0)
+# The application requires the motor and encoder nodes from this overlay.
+if(NOT DTC_OVERLAY_FILE)
+  set(DTC_OVERLAY_FILE "${CMAKE_CURRENT_SOURCE_DIR}/boards/nucleo_f401re.overlay")
+endif()
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(lab2)
 

@@ -1,6 +1,8 @@
+#include <stdbool.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/printk.h>
 
@@ -12,84 +14,166 @@
 int motor_test_once(void);
 #endif
 
-#define WHEEL_RX_STACK_SIZE 1024
+#define WHEEL_RX_STACK_SIZE 1536
 #define WHEEL_RX_PRIORITY   5
-#define WHEEL_RX_QUEUE_SIZE 128
+#define WHEEL_RX_QUEUE_SIZE 16
+#define WHEEL_LINK_TIMEOUT_MS 150
+#define WHEEL_BUTTONS_MASK (WHEEL_BUTTON_A | WHEEL_BUTTON_B | WHEEL_BUTTON_X | \
+	WHEEL_BUTTON_Y | WHEEL_BUTTON_RIGHT_BLINKER | WHEEL_BUTTON_LEFT_BLINKER | \
+	WHEEL_BUTTON_RSB | WHEEL_BUTTON_LSB)
 
 static const struct device *const wheel_uart = DEVICE_DT_GET(DT_NODELABEL(usart1));
 
-/* Queue bytes so all diagnostic printing stays outside the UART ISR. */
-K_MSGQ_DEFINE(wheel_rx_queue, sizeof(uint8_t), WHEEL_RX_QUEUE_SIZE, 1);
+struct wheel_rx_packet {
+	uint8_t bytes[sizeof(struct wheel_info)];
+	int64_t timestamp_ms;
+};
+
+K_MSGQ_DEFINE(wheel_rx_queue, sizeof(struct wheel_rx_packet), WHEEL_RX_QUEUE_SIZE, 8);
+K_SEM_DEFINE(motor_control_ready, 0, 1);
+static atomic_t wheel_rx_fault;
 
 static void wheel_uart_callback(const struct device *dev, void *user_data)
 {
+	static struct wheel_rx_packet packet;
+	static size_t received;
 	uint8_t byte;
 
 	ARG_UNUSED(user_data);
-
 	uart_irq_update(dev);
 
-	if (!uart_irq_rx_ready(dev)) {
+	/* A lost/corrupt byte destroys alignment in the fixed-size wire format. */
+	if (uart_err_check(dev) != 0) {
+		atomic_set(&wheel_rx_fault, 1);
+		uart_irq_rx_disable(dev);
 		return;
 	}
-
+	if (uart_irq_rx_ready(dev) == 0) {
+		return;
+	}
 	while (uart_fifo_read(dev, &byte, 1) == 1) {
-		/* Temporary byte tracing: excess bytes are dropped if the queue fills. */
-		(void)k_msgq_put(&wheel_rx_queue, &byte, K_NO_WAIT);
+		packet.bytes[received++] = byte;
+		if (received == sizeof(packet.bytes)) {
+			packet.timestamp_ms = k_uptime_get();
+			if (k_msgq_put(&wheel_rx_queue, &packet, K_NO_WAIT) != 0) {
+				atomic_set(&wheel_rx_fault, 1);
+				uart_irq_rx_disable(dev);
+				return;
+			}
+			received = 0;
+		}
 	}
 }
 
 static void wheel_receiver_thread(void *arg1, void *arg2, void *arg3)
 {
-	uint8_t packet[sizeof(struct wheel_info)];
-	size_t received = 0;
-	uint8_t byte;
+	struct wheel_rx_packet packet;
+	int64_t last_packet_ms = 0;
+	int64_t last_print_ms = -100;
+	bool have_packet = false;
+	const char *stop_reason = "motor output error";
 	int ret;
 
 	ARG_UNUSED(arg1);
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
 
-	if (!device_is_ready(wheel_uart)) {
-		printk("USART1 is not ready\n");
+	ret = k_sem_take(&motor_control_ready, K_FOREVER);
+	if (ret != 0) {
 		return;
 	}
-
+	if (!device_is_ready(wheel_uart)) {
+		printk("USART1 is not ready; motors remain in coast\n");
+		return;
+	}
 	ret = uart_irq_callback_user_data_set(wheel_uart, wheel_uart_callback, NULL);
 	if (ret != 0) {
 		printk("USART1 callback setup failed: %d\n", ret);
 		return;
 	}
 
-	printk("Wheel receiver: USART1, 115200 baud, 8-byte packets\n");
+	printk("Throttle: USART1 115200, both motors, released=0%% pressed=100%%\n");
 	uart_irq_rx_enable(wheel_uart);
 
 	while (1) {
-		if (k_msgq_get(&wheel_rx_queue, &byte, K_SECONDS(2)) != 0) {
-			printk("USART1: waiting for RX bytes (%u/8 buffered)\n",
-			       (unsigned int)received);
+		/* Short waits also notice ISR faults when no complete packet arrives. */
+		int64_t remaining = have_packet ? WHEEL_LINK_TIMEOUT_MS -
+			(k_uptime_get() - last_packet_ms) : 20;
+
+		if (remaining <= 0) {
+			stop_reason = "UART command timeout";
+			break;
+		}
+		ret = k_msgq_get(&wheel_rx_queue, &packet, K_MSEC(MIN(remaining, 20)));
+		if (atomic_get(&wheel_rx_fault) != 0) {
+			stop_reason = "UART error or RX queue overflow";
+			break;
+		}
+		if (ret != 0) {
 			continue;
 		}
+		/* Apply the newest queued command, not a backlog of old throttle values. */
+		for (size_t i = 0; i < WHEEL_RX_QUEUE_SIZE; i++) {
+			struct wheel_rx_packet newer;
 
-		printk("USART1 RX byte: 0x%02x\n", (unsigned int)byte);
-		packet[received++] = byte;
-		if (received < sizeof(packet)) {
-			continue;
+			if (k_msgq_get(&wheel_rx_queue, &newer, K_NO_WAIT) != 0) {
+				break;
+			}
+			packet = newer;
 		}
-		received = 0;
-
-		/* Decode the little-endian wire fields explicitly. */
+		if (atomic_get(&wheel_rx_fault) != 0) {
+			stop_reason = "UART error or RX queue overflow";
+			break;
+		}
+		if (k_uptime_get() - packet.timestamp_ms >= WHEEL_LINK_TIMEOUT_MS) {
+			stop_reason = "stale UART command";
+			break;
+		}
 		struct wheel_info wheel = {
-			.steering = (int16_t)sys_get_le16(&packet[0]),
-			.throttle = (int16_t)sys_get_le16(&packet[2]),
-			.brake = (int16_t)sys_get_le16(&packet[4]),
-			.buttons = sys_get_le16(&packet[6]),
+			.steering = (int16_t)sys_get_le16(&packet.bytes[0]),
+			.throttle = (int16_t)sys_get_le16(&packet.bytes[2]),
+			.brake = (int16_t)sys_get_le16(&packet.bytes[4]),
+			.buttons = sys_get_le16(&packet.bytes[6]),
 		};
 
-		printk("Wheel: steering=%d throttle=%d brake=%d buttons=0x%04x\n",
-		       (int)wheel.steering, (int)wheel.throttle,
-		       (int)wheel.brake, (unsigned int)wheel.buttons);
+		if ((wheel.buttons & ~WHEEL_BUTTONS_MASK) != 0U) {
+			stop_reason = "invalid button bits / packet alignment";
+			break;
+		}
+		/* Exact mapping: 32767 -> 0, -32768 -> 65535. No float or deadband. */
+		uint32_t duty = (int32_t)WHEEL_THROTTLE_RELEASED - (int32_t)wheel.throttle;
+
+		for (enum motor_side side = MOTOR_LEFT; side < MOTOR_COUNT; side++) {
+			ret = motor_drive_raw(side, (int32_t)duty);
+			if (ret != 0) {
+				break;
+			}
+		}
+		if (ret != 0) {
+			printk("Throttle drive failed: %d\n", ret);
+			break;
+		}
+		last_packet_ms = packet.timestamp_ms;
+		have_packet = true;
+
+		/* Limit console traffic; every received command still updates PWM. */
+		int64_t now = k_uptime_get();
+
+		if (now - last_print_ms >= 100) {
+			uint32_t percent_x100 = (duty * 10000U + MOTOR_DUTY_FULL_SCALE / 2U) /
+						MOTOR_DUTY_FULL_SCALE;
+
+			printk("Throttle=%d duty=%u.%02u%% (both motors)\n",
+			       (int)wheel.throttle, (unsigned int)(percent_x100 / 100U),
+			       (unsigned int)(percent_x100 % 100U));
+			last_print_ms = now;
+		}
 	}
+
+	uart_irq_rx_disable(wheel_uart);
+	ret = motors_coast();
+	printk("Throttle stopped: %s; coast=%d. Reset to restart reception.\n",
+	       stop_reason, ret);
 }
 
 K_THREAD_DEFINE(wheel_rx_thread, WHEEL_RX_STACK_SIZE,
@@ -104,7 +188,7 @@ int main(void)
 		printk("Motor initialization failed: %d\n", ret);
 		return ret;
 	}
-	printk("Motors initialized in coast; drive commands are not enabled by UART\n");
+	printk("Motors initialized in coast\n");
 	ret = encoders_init();
 	if (ret != 0) {
 		printk("Encoder initialization failed: %d\n", ret);
@@ -117,6 +201,9 @@ int main(void)
 		printk("Motor test failed: %d\n", ret);
 		return ret;
 	}
+#else
+	/* UART control starts only after both drivers are initialized. */
+	k_sem_give(&motor_control_ready);
 #endif
 	struct encoder_snapshot last, now;
 	encoders_snapshot(&last);

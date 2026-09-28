@@ -1,6 +1,10 @@
 #ifndef LAB_MOTOR_H_
 #define LAB_MOTOR_H_
 
+#include <stdint.h>
+
+#define MOTOR_DUTY_FULL_SCALE 65535U
+
 enum motor_side { MOTOR_LEFT, MOTOR_RIGHT, MOTOR_COUNT };
 
 /* Thread context only. Calls serialize; never invoke from a GPIO/UART ISR.
@@ -16,6 +20,15 @@ int motors_init(void);
  * encoder to show a stopped wheel before requesting the opposite direction.
  */
 int motor_drive(enum motor_side side, int duty_permille);
+
+/**
+ * @brief Set signed motor duty with full 16-bit magnitude resolution.
+ * @param side Motor to drive.
+ * @param duty_raw -65535..65535; 0 coasts, 65535 is full forward duty.
+ * @return 0 on success, negative errno on failure, as for motor_drive().
+ * The pulse width is rounded to the nearest available PWM timer tick.
+ */
+int motor_drive_raw(enum motor_side side, int32_t duty_raw);
 
 /* Latch braking on BOTH wheels: equal direction inputs and enable HIGH.
  * Subsequent drive commands cannot override it. Hardware failures attempt

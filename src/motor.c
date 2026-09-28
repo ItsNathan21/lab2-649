@@ -27,10 +27,25 @@ static bool faulted;
 static bool braking;
 static int applied[MOTOR_COUNT];
 
-static int set_enable(unsigned int side, unsigned int permille)
+static int set_enable(unsigned int side, uint32_t duty)
 {
-	uint32_t pulse = (uint64_t)enables[side].period * permille / 1000U;
-	return pwm_set_pulse_dt(&enables[side], pulse);
+	const struct pwm_dt_spec *pwm = &enables[side];
+	uint64_t rate;
+	int ret = pwm_get_cycles_per_sec(pwm->dev, pwm->channel, &rate);
+
+	if (ret != 0) {
+		return ret;
+	}
+	uint64_t period = rate * pwm->period / NSEC_PER_SEC;
+
+	if (period == 0U || period > UINT32_MAX) {
+		return -ERANGE;
+	}
+	/* Round directly to the nearest timer tick, without a permille step. */
+	uint32_t pulse = (period * duty + MOTOR_DUTY_FULL_SCALE / 2U) /
+			 MOTOR_DUTY_FULL_SCALE;
+
+	return pwm_set_cycles(pwm->dev, pwm->channel, (uint32_t)period, pulse, pwm->flags);
 }
 
 /* Always try both, even if one fails. */
@@ -99,11 +114,11 @@ out:
 	return ret;
 }
 
-int motor_drive(enum motor_side side, int duty_permille)
+int motor_drive_raw(enum motor_side side, int32_t duty_raw)
 {
 	int ret;
-	if ((unsigned int)side >= MOTOR_COUNT || duty_permille < -1000 ||
-	    duty_permille > 1000) {
+	if ((unsigned int)side >= MOTOR_COUNT || duty_raw < -(int32_t)MOTOR_DUTY_FULL_SCALE ||
+	    duty_raw > (int32_t)MOTOR_DUTY_FULL_SCALE) {
 		return -EINVAL;
 	}
 	k_mutex_lock(&motor_lock, K_FOREVER);
@@ -115,7 +130,7 @@ int motor_drive(enum motor_side side, int duty_permille)
 		ret = -EPERM;
 		goto out;
 	}
-	int duty = duty_permille * polarity[side];
+	int32_t duty = duty_raw * polarity[side];
 	if ((applied[side] > 0 && duty < 0) || (applied[side] < 0 && duty > 0)) {
 		ret = -EBUSY;
 		goto out;
@@ -152,6 +167,17 @@ out:
 	return ret;
 }
 
+int motor_drive(enum motor_side side, int duty_permille)
+{
+	if (duty_permille < -1000 || duty_permille > 1000) {
+		return -EINVAL;
+	}
+	int32_t scaled = duty_permille * (int32_t)MOTOR_DUTY_FULL_SCALE;
+
+	scaled = (scaled + (scaled < 0 ? -500 : 500)) / 1000;
+	return motor_drive_raw(side, scaled);
+}
+
 int motors_brake(void)
 {
 	k_mutex_lock(&motor_lock, K_FOREVER);
@@ -174,7 +200,7 @@ int motors_brake(void)
 			/* Static HIGH enable + IN1=IN2=LOW = dynamic braking.
 			 * A zero-duty enable would COAST instead (L298 truth table).
 			 */
-			ret = set_enable(side, 1000);
+			ret = set_enable(side, MOTOR_DUTY_FULL_SCALE);
 		}
 		if (ret != 0) {
 			ret = fail(ret);
