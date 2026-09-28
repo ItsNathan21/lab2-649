@@ -1,5 +1,5 @@
 /** @file uart_receiver.c
- * @brief USART1 packet reception and pedal control worker.
+ * @brief USART1 pedal and blinker command receiver.
  */
 #include <errno.h>
 #include <stdbool.h>
@@ -13,7 +13,7 @@
 #include "blinker.h"
 #include "wheel_info.h"
 #include "uart_receiver.h"
-#include "motor.h"
+#include "motor_controller.h"
 #include "pedal_control.h"
 
 static const struct device *const wheel_uart = DEVICE_DT_GET(DT_NODELABEL(usart1));
@@ -93,7 +93,7 @@ static int update_blinker_buttons(uint16_t buttons)
 }
 
 /**
- * @brief Apply fresh pedal packets and update both motor duties until a fault.
+ * @brief Forward fresh speed requests and blinker commands until a fault.
  * @param arg1 Unused Zephyr thread argument.
  * @param arg2 Unused Zephyr thread argument.
  * @param arg3 Unused Zephyr thread argument.
@@ -103,8 +103,7 @@ static void wheel_receiver_thread(void *arg1, void *arg2, void *arg3)
 	struct wheel_rx_packet packet;
 	int64_t last_packet_ms = 0;
 	int64_t last_print_ms = -WHEEL_RX_PRINT_MS;
-	int64_t last_update_ms = k_uptime_get();
-	uint32_t duty = 0U;
+	uint32_t target_mrpm = 0U;
 	struct wheel_info wheel = {
 		.throttle = WHEEL_THROTTLE_RELEASED,
 		.brake = WHEEL_BRAKE_RELEASED,
@@ -127,7 +126,7 @@ static void wheel_receiver_thread(void *arg1, void *arg2, void *arg3)
 		return;
 	}
 
-	printk("Pedals: USART1 115200, both motors; brake reduces duty\n");
+	printk("Pedals: USART1 115200, both motors; brake reduces target speed\n");
 	uart_irq_rx_enable(wheel_uart);
 
 	while (1) {
@@ -146,7 +145,7 @@ static void wheel_receiver_thread(void *arg1, void *arg2, void *arg3)
 			break;
 		}
 		if (ret == 0) {
-			/* Inspect every queued button edge; only the newest pedals drive PWM. */
+			/* Inspect every queued button edge; only the newest pedals set speed. */
 			bool packet_fault = false;
 
 			for (size_t i = 0; i < WHEEL_RX_QUEUE_SIZE; i++) {
@@ -188,8 +187,11 @@ static void wheel_receiver_thread(void *arg1, void *arg2, void *arg3)
 				}
 				break;
 			}
-			if (!have_packet) {
-				last_update_ms = k_uptime_get();
+			target_mrpm = pedal_control_target(wheel.throttle, wheel.brake);
+			ret = motor_controller_set_target(target_mrpm, packet.timestamp_ms);
+			if (ret != 0) {
+				stop_reason = "speed controller rejected command";
+				break;
 			}
 			last_packet_ms = packet.timestamp_ms;
 			have_packet = true;
@@ -199,43 +201,20 @@ static void wheel_receiver_thread(void *arg1, void *arg2, void *arg3)
 		}
 		int64_t now = k_uptime_get();
 
-		/* A timed queue wait must not ramp motors after the command has expired. */
+		/* Retain the receiver watchdog as well as the independent PID watchdog. */
 		if (now - last_packet_ms >= WHEEL_LINK_TIMEOUT_MS) {
 			stop_reason = "UART command timeout";
 			break;
 		}
-		uint32_t target = pedal_control_target(wheel.throttle, wheel.brake);
-
-		duty = pedal_control_ramp(duty, target, (uint32_t)(now - last_update_ms));
-		last_update_ms = now;
-
-		for (enum motor_side side = MOTOR_LEFT; side < MOTOR_COUNT; side++) {
-			ret = motor_drive_raw(side, (int32_t)duty);
-			if (ret != 0) {
-				break;
-			}
-		}
-		if (ret != 0) {
-			printk("Throttle drive failed: %d\n", ret);
-			break;
-		}
-
-		/* Limit console traffic while ramp updates continue between packets. */
-
 		if (now - last_print_ms >= WHEEL_RX_PRINT_MS) {
-			uint32_t percent_x100 = (duty * 10000U + MOTOR_DUTY_FULL_SCALE / 2U) /
-						MOTOR_DUTY_FULL_SCALE;
-
-			printk("Throttle=%d brake=%d duty=%u.%02u%% (both motors)\n",
-			       (int)wheel.throttle, (int)wheel.brake,
-			       (unsigned int)(percent_x100 / 100U),
-			       (unsigned int)(percent_x100 % 100U));
+			printk("Throttle=%d brake=%d request=%u mRPM (both motors)\n",
+			       (int)wheel.throttle, (int)wheel.brake, target_mrpm);
 			last_print_ms = now;
 		}
 	}
 
 	uart_irq_rx_disable(wheel_uart);
-	ret = motors_coast();
+	ret = motor_controller_stop();
 	int left_ret = blinker_set(BLINKER_LEFT, false);
 	int right_ret = blinker_set(BLINKER_RIGHT, false);
 

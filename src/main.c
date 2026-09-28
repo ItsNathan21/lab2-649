@@ -6,6 +6,7 @@
 #include "encoder.h"
 #include "encoder_monitor.h"
 #include "motor.h"
+#include "motor_controller.h"
 #include "uart_receiver.h"
 
 /**
@@ -32,7 +33,12 @@ int main(void)
 		printk("Blinker initialization failed: %d\n", ret);
 		return ret;
 	}
-	/* UART control starts only after both drivers are initialized. */
+	ret = motor_controller_start();
+	if (ret != 0) {
+		printk("Speed controller start failed: %d\n", ret);
+		return ret;
+	}
+	/* UART submits commands only after drivers and the PID worker are ready. */
 	ret = uart_receiver_start();
 	if (ret != 0) {
 		printk("UART receiver start failed: %d\n", ret);

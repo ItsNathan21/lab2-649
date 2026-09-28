@@ -48,11 +48,12 @@ Use tabs for C indentation, `snake_case`, braces on separate lines for functions
 
 ## Current layout
 
-- `main.c`: initializes drivers and starts UART motor control and encoder reporting.
-- `uart_receiver.c/.h`: USART1 interrupt, private packet queue, throttle worker, and start API. This worker owns link-loss handling and calls the pedal mapping API.
+- `main.c`: initializes drivers and starts speed PID, UART, blinkers, and encoder reporting.
+- `uart_receiver.c/.h`: USART1 interrupt, private packet queue, command worker, and start API. It sends speed requests to motor_controller and enable states to blinker.
 - `blinker.c/.h`: independent indicator GPIO timing and enable/disable API.
 - `encoder_monitor.c/.h`: reporting worker and start API.
-- `pedal_control.c/.h`: pure throttle/brake mapping and duty-ramp calculations.
+- `pedal_control.c/.h`: pure throttle/brake mapping into wheel-speed requests.
+- `motor_controller.c/.h`: independent speed PID loops, output ownership, and tuning constants.
 - `motor.c/.h`, `encoder.c/.h`: device APIs with private hardware state.
 - `quadrature.c/.h`: pure transition decoder.
 - `wheel_info.h`: shared eight-byte UART layout and measured wheel constants.

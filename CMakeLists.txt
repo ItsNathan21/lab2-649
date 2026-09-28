@@ -13,6 +13,7 @@ target_sources(app PRIVATE
   src/encoder.c
   src/encoder_monitor.c
   src/motor.c
+  src/motor_controller.c
   src/pedal_control.c
   src/quadrature.c
   src/uart_receiver.c

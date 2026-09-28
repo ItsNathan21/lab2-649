@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 #include "wheel_info.h"
+#include "motor_controller.h"
 
 /** @brief Stack bytes; 1536 is the initial budget, not a measured maximum. */
 #define WHEEL_RX_STACK_SIZE   1536
@@ -14,7 +15,7 @@
 /** @brief Buffer 16 packets to tolerate short scheduling delays; initial chosen capacity. */
 #define WHEEL_RX_QUEUE_SIZE   16
 /** @brief Stop after 150 ms without a fresh command, allowing about two sender periods. */
-#define WHEEL_LINK_TIMEOUT_MS 150
+#define WHEEL_LINK_TIMEOUT_MS MOTOR_PID_COMMAND_TIMEOUT_MS
 /** @brief Check receive faults at least every 20 ms; initial chosen polling interval. */
 #define WHEEL_RX_POLL_MS 20
 /** @brief Limit throttle logging to 10 Hz to reduce console traffic. */
@@ -32,7 +33,7 @@ struct wheel_rx_packet {
 };
 
 /**
- * @brief Start UART throttle control once, after motor and encoder initialization.
+ * @brief Start UART command reception once, after the speed controller is started.
  * Call from main only; a receive fault stops the worker until reset.
  * @return 0 when started, or -EALREADY if already started.
  */
