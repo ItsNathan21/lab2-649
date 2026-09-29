@@ -58,6 +58,13 @@ int motor_drive_raw(enum motor_side side, int32_t duty_raw);
  */
 int motors_brake(void);
 
+/**
+ * @brief Latch proportional dynamic braking on both wheels using enable PWM.
+ * @param duty_raw Brake duty in 1..65535; release through motors_release_brake().
+ * @return 0 on success, or a negative argument/driver error.
+ */
+int motors_brake_raw(uint32_t duty_raw);
+
 /* Clear braking into coast, never automatically resume a previous duty. */
 /**
  * @brief Clear the brake latch into coast without resuming old duty.

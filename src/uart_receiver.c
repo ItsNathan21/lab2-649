@@ -166,6 +166,7 @@ static void receiver_worker(void *arg1, void *arg2, void *arg3)
 		if (ret == 0) {
 			ret = motor_controller_set_target(
 				pedal_control_target(wheel.throttle, wheel.brake),
+				pedal_control_brake(wheel.brake),
 				packet.timestamp_ms);
 		}
 		if (ret == 0 && (rising & WHEEL_BUTTON_LEFT_BLINKER) != 0U) {

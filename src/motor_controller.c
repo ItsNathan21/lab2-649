@@ -56,6 +56,7 @@ static bool faulted;
 static bool inhibited;
 static bool have_command;
 static uint32_t requested_mrpm;
+static uint32_t requested_brake;
 static uint32_t ramped_mrpm;
 static int64_t command_ms;
 
@@ -201,7 +202,7 @@ static void controller_worker(void *arg1, void *arg2, void *arg3)
 				(derivative - state->derivative_mrpm_per_s) * elapsed /
 				(MOTOR_PID_D_FILTER_MS + elapsed);
 		}
-		if (!faulted && inhibited) {
+		if (!faulted && (inhibited || requested_brake != 0U)) {
 			reset_drive();
 		} else if (!faulted && (!have_command || requested_mrpm == 0U)) {
 			reset_drive();
@@ -252,6 +253,8 @@ static void controller_worker(void *arg1, void *arg2, void *arg3)
 		int32_t right_speed = states[MOTOR_RIGHT].speed_mrpm;
 		uint32_t left_duty = states[MOTOR_LEFT].duty * 1000U / MOTOR_DUTY_FULL_SCALE;
 		uint32_t right_duty = states[MOTOR_RIGHT].duty * 1000U / MOTOR_DUTY_FULL_SCALE;
+		uint32_t brake_duty = (inhibited || faulted) ? 1000U :
+			requested_brake * 1000U / MOTOR_DUTY_FULL_SCALE;
 		bool stopped = faulted;
 
 		k_mutex_unlock(&controller_lock);
@@ -259,8 +262,9 @@ static void controller_worker(void *arg1, void *arg2, void *arg3)
 			return;
 		}
 		if (sample.timestamp_ms - last_print_ms >= MOTOR_PID_PRINT_MS) {
-			printk("PID target=%u mRPM L=%d mRPM duty=%u/1000 R=%d mRPM duty=%u/1000\n",
-			       target, left_speed, left_duty, right_speed, right_duty);
+			printk("PID target=%u mRPM L=%d mRPM duty=%u/1000 "
+			       "R=%d mRPM duty=%u/1000 brake=%u/1000\n",
+			       target, left_speed, left_duty, right_speed, right_duty, brake_duty);
 			last_print_ms = sample.timestamp_ms;
 		}
 		previous = sample;
@@ -287,16 +291,17 @@ int motor_controller_start(void)
 }
 
 /**
- * @brief Accept a fresh, bounded speed command; zero immediately coasts both wheels.
- * @param target_mrpm Wheel-speed demand in millirpm.
+ * @brief Accept speed and braking together; braking overrides forward drive immediately.
+ * @param target_mrpm Wheel-speed demand in millirpm when brake duty is zero.
+ * @param brake_raw Electrical braking duty in 0..65535.
  * @param received_ms Actual reception uptime of the command packet.
  * @return 0 on success, or a negative argument, freshness, state, or driver error.
  */
-int motor_controller_set_target(uint32_t target_mrpm, int64_t received_ms)
+int motor_controller_set_target(uint32_t target_mrpm, uint32_t brake_raw, int64_t received_ms)
 {
 	int ret = 0;
 
-	if (target_mrpm > MOTOR_PID_MAX_RPM * 1000U) {
+	if (target_mrpm > MOTOR_PID_MAX_RPM * 1000U || brake_raw > MOTOR_DUTY_FULL_SCALE) {
 		return -EINVAL;
 	}
 	k_mutex_lock(&controller_lock, K_FOREVER);
@@ -310,25 +315,26 @@ int motor_controller_set_target(uint32_t target_mrpm, int64_t received_ms)
 		   (have_command && received_ms < command_ms)) {
 		ret = -ESTALE;
 	} else {
-		if (inhibited) {
+		if (brake_raw != 0U) {
+			reset_drive();
+			ret = motors_brake_raw(brake_raw);
+		} else if (inhibited || requested_brake != 0U) {
 			ret = motors_release_brake();
-			if (ret != 0) {
-				faulted = true;
-				k_mutex_unlock(&controller_lock);
-				return ret;
-			}
-			inhibited = false;
 			reset_drive();
 		}
-		requested_mrpm = target_mrpm;
-		command_ms = received_ms;
-		have_command = true;
-		if (target_mrpm == 0U) {
-			reset_drive();
-			ret = motors_coast();
-			if (ret != 0) {
-				faulted = true;
+		if (ret == 0) {
+			inhibited = false;
+			requested_brake = brake_raw;
+			requested_mrpm = brake_raw != 0U ? 0U : target_mrpm;
+			command_ms = received_ms;
+			have_command = true;
+			if (brake_raw == 0U && target_mrpm == 0U) {
+				reset_drive();
+				ret = motors_coast();
 			}
+		}
+		if (ret != 0) {
+			stop_on_fault("pedal output update failed");
 		}
 	}
 	k_mutex_unlock(&controller_lock);

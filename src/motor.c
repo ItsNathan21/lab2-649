@@ -215,33 +215,39 @@ int motor_drive(enum motor_side side, int duty_permille)
 }
 
 /**
- * @brief Latch braking on both wheels until explicitly released.
- * @return 0 on success, or a negative motor error.
+ * @brief Apply equal-input braking on both bridges with proportional enable PWM.
+ * @param duty_raw Brake duty in 1..65535; release through motors_release_brake().
+ * @return 0 on success, or a negative range/driver error.
  */
-int motors_brake(void)
+int motors_brake_raw(uint32_t duty_raw)
 {
+	if (duty_raw == 0U || duty_raw > MOTOR_DUTY_FULL_SCALE) {
+		return -EINVAL;
+	}
 	k_mutex_lock(&motor_lock, K_FOREVER);
 	int ret = available();
+
 	if (ret != 0) {
 		goto out;
 	}
-	braking = true;
-	ret = disable_all();
-	if (ret != 0) {
-		ret = fail(ret);
-		goto out;
+	if (!braking) {
+		/* Disable and settle PWM before changing from drive to equal inputs. */
+		ret = disable_all();
+		for (unsigned int side = 0; side < MOTOR_COUNT && ret == 0; side++) {
+			ret = gpio_pin_set_dt(&inputs[side][0], 0);
+			if (ret == 0) {
+				ret = gpio_pin_set_dt(&inputs[side][1], 0);
+			}
+		}
+		if (ret != 0) {
+			ret = fail(ret);
+			goto out;
+		}
+		braking = true;
 	}
+	/* Inputs stay LOW: enable HIGH brakes, enable LOW coasts (L298 truth table). */
 	for (unsigned int side = 0; side < MOTOR_COUNT; side++) {
-		ret = gpio_pin_set_dt(&inputs[side][0], 0);
-		if (ret == 0) {
-			ret = gpio_pin_set_dt(&inputs[side][1], 0);
-		}
-		if (ret == 0) {
-			/* Static HIGH enable + IN1=IN2=LOW = dynamic braking.
-			 * A zero-duty enable would COAST instead (L298 truth table).
-			 */
-			ret = set_enable(side, MOTOR_DUTY_FULL_SCALE);
-		}
+		ret = set_enable(side, duty_raw);
 		if (ret != 0) {
 			ret = fail(ret);
 			goto out;
@@ -250,6 +256,15 @@ int motors_brake(void)
 out:
 	k_mutex_unlock(&motor_lock);
 	return ret;
+}
+
+/**
+ * @brief Latch full electrical braking on both wheels until explicitly released.
+ * @return 0 on success, or a negative motor error.
+ */
+int motors_brake(void)
+{
+	return motors_brake_raw(MOTOR_DUTY_FULL_SCALE);
 }
 
 /**

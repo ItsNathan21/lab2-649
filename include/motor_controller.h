@@ -98,12 +98,13 @@ struct motor_pid_state {
 int motor_controller_start(void);
 
 /**
- * @brief Submit a forward speed request for both wheels from a fresh UART packet.
+ * @brief Submit speed and braking together; nonzero braking overrides forward drive.
  * @param target_mrpm Requested wheel speed in millirpm, up to MOTOR_PID_MAX_RPM * 1000.
+ * @param brake_raw Electrical brake duty in 0..65535; zero releases pedal braking.
  * @param received_ms Actual packet reception uptime; repeated calls do not refresh its age.
  * @return 0 on success, or -EINVAL, -ESTALE, -ENODEV, or -EIO for rejected commands.
  */
-int motor_controller_set_target(uint32_t target_mrpm, int64_t received_ms);
+int motor_controller_set_target(uint32_t target_mrpm, uint32_t brake_raw, int64_t received_ms);
 
 /**
  * @brief Latch the controller off and brake both motors; reset is required to restart.

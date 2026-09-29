@@ -4,8 +4,10 @@ Wheel GUI -> UDP port 8000 -> Raspberry Pi UART -> STM32 USART1 -> both motors.
 Throttle requests wheel speed, and independent encoder-feedback PID loops adjust
 PWM for each motor. After a 2% release deadband, throttle maps to 0..120 wheel RPM.
 **120 RPM is an unmeasured initial limit**, editable in `include/motor_controller.h`.
-Brake travel proportionally lowers the request; full brake or released throttle
-commands coast and clears integral buildup. Faults and self-test instead apply full
+Brake travel applies proportional electrical braking and overrides throttle.
+Braking ramps from zero after the released-end deadband to full duty at raw **20000**;
+lower raw readings remain fully braked. Released throttle with brake released coasts.
+Braking clears integral buildup. Faults and self-test instead apply full
 electrical braking to both motors.
 
 Targets initially rise at 120 RPM/s and decrease immediately. A 50% feedforward
@@ -206,8 +208,22 @@ normal `BLINKER_RATE_HZ` in `include/blinker.h`.
 
 ## Stopping and restarting
 
-Released throttle and full brake normally request zero speed/coast. A fault instead
-sets both bridge inputs low with full enable: **electrical braking**, not coasting.
+Released throttle with the brake released coasts. Pressing the brake overrides drive:
+both bridge inputs go low, and enable PWM controls the fraction of time spent braking.
+At raw **20000 or lower**, both enables stay fully high for full dynamic braking.
+Faults and self-test still request full braking regardless of pedal positions.
+
+Tune `PEDAL_BRAKE_FULL_RAW` in `include/pedal_control.h` (initially 20000).
+The existing 1311-count deadband ignores readings from 31456 through 32767.
+Approximately 25728 gives 50% brake PWM; this is duty, not calibrated braking torque.
+Releasing the brake resumes the current throttle request with the existing acceleration
+ramp. Normal pedal braking does not activate hazards. The PID console now includes
+`brake=.../1000`, where 1000 is full brake duty.
+
+This uses the L298's [dynamic braking mode](https://www.st.com/resource/en/datasheet/l298.pdf):
+it shorts the motor terminals through the bridge rather than applying reverse drive.
+It does not provide powered holding torque at zero speed. Braking current must remain
+within the driver's rating; software has no current measurement.
 
 - Pi commands and STM status heartbeats run every **20 ms**, including during faults.
 - **60 ms without a valid advancing command** (three missed updates) triggers fail-safe.
