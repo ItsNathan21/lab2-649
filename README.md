@@ -1,5 +1,7 @@
 # Lab 2: throttle-controlled motors
 
+**Full wiring guide:** [WIRING.md](WIRING.md) covers motor connector pins, H-bridge, servo, sensors, power, and UART.
+
 Wheel GUI -> UDP port 8000 -> Raspberry Pi UART -> STM32 USART1 -> both motors.
 Throttle requests wheel speed, and independent encoder-feedback PID loops adjust
 PWM for each motor. After a 2% release deadband, throttle maps to 0..120 wheel RPM.
