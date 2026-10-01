@@ -1,5 +1,7 @@
 # Lab 2: throttle-controlled motors
 
+**Run instructions (macOS and Windows):** [RUNNING.md](RUNNING.md) covers setup, build/flash, the Pi forwarder, and the wheel GUI.
+
 **Full wiring guide:** [WIRING.md](WIRING.md) covers motor connector pins, H-bridge, servo, sensors, power, and UART.
 
 Wheel GUI -> UDP port 8000 -> Raspberry Pi UART -> STM32 USART1 -> both motors.
