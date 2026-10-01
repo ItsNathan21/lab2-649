@@ -95,7 +95,10 @@ Use STM32 GPIO labels, not similarly named Arduino RX/TX labels.
 | Right blinker output | PC10 |
 | Steering servo signal | PA1 / TIM2 channel 2 |
 
-Left motor connects to **OUT1/OUT2**, right motor to **OUT3/OUT4**.
+Left motor connects to **OUT3/OUT4** (ENB / IN3 / IN4);
+right motor connects to **OUT1/OUT2** (ENA / IN1 / IN2).
+The motor driver maps each PID output to that physical wheel's bridge.
+Encoder channels remain left PC0/PC1 and right PC2/PC3.
 Remove **ENA/ENB jumpers** when using PWM; use 10 kohm enable pull-downs to ground.
 Power the motor bridge from its motor supply, the Nucleo through USB, and the Pi
 from its own supply. The module's regulator jumper is separate from ENA/ENB;
@@ -170,6 +173,14 @@ The module starts centered and maps wheel input as follows:
 
 Edit pulse limits and `SERVO_REVERSED` in `include/servo.h` to match linkage travel.
 The repetition period is set to 20 ms (50 Hz) in the overlay's `steering_servo.pwms`.
+Initialization checks the period and active-high polarity; pulse limits must stay
+within the model's 500..2500 us range. `SERVO_UPDATE_DEADBAND_US` initially ignores
+changes smaller than 3 us relative to the last applied pulse to reduce command
+jitter (set it to 0 to disable). Exact center/endpoints and recovery after a
+disabled output apply immediately. There is no added smoothing delay. The
+blinker angle remains an estimate from the requested pulse, within this deadband
+of the applied command. This does not measure actual shaft position or correct
+power-supply dips or mechanical binding.
 TIM2 is separate from the motors' TIM3, so steering updates do not change motor PWM.
 The Windows `proxy_gui.py` now requests and verifies 900 degrees of G920 operating
 range on connect. Restart that GUI to apply it. The wheel has 450 degrees per side
@@ -220,7 +231,7 @@ Calibration lives in `include/current_sensor.h`:
 - `CURRENT_SENSOR_REFERENCE_UV`: nominal 3300000; replace with measured ADC reference.
 - Each `*_ZERO_UV`: nominal 1250000 after the divider; replace with measured ADC-pin voltage at zero load current.
 - Each `*_UV_PER_AMP`: signed voltage change at the ADC pin per amp, including any
-  divider. **All sensitivities remain zero until the variant is confirmed.**
+  divider. **All three are set to nominal 92500 uV/A for confirmed 5A modules.**
   With the selected divider, nominal values are 92500 (5A), 50000 (20A), or
   33000 (30A) uV/A; check each module independently.
 
@@ -234,7 +245,8 @@ validity means a fresh calibrated, unclipped conversion, not verified sensor pre
 
 The STM console prints raw counts, averaged mV, converted mA, and masks twice per
 second, always ordered left/right/servo. `sampled=0x07` means all three ADC reads
-succeeded; `valid=0x00` is expected until calibration is supplied. **An mA value
+succeeded. With the nominal 5A settings, `valid=0x07` is expected for fresh,
+unclipped, representable readings; it does not certify measured calibration accuracy. **An mA value
 without its validity bit is unavailable, not a measurement of zero current.**
 
 The existing 16-byte status frame and CRC are unchanged. Its eight payload bytes are:

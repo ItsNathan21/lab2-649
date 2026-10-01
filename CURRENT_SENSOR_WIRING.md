@@ -49,8 +49,8 @@ Make changes with USB and actuator supplies disconnected.
 
 | Module | IP+ terminal | IP- terminal | Other load lead |
 | --- | --- | --- | --- |
-| Left motor | L298 OUT1 | Motor lead previously connected to OUT1 | Remains on OUT2 |
-| Right motor | L298 OUT3 | Motor lead previously connected to OUT3 | Remains on OUT4 |
+| Left motor | L298 OUT3 | Motor lead previously connected to OUT3 | Remains on OUT4 |
+| Right motor | L298 OUT1 | Motor lead previously connected to OUT1 | Remains on OUT2 |
 | Servo | Positive output of the existing servo-rated supply | Servo positive power lead | Servo ground stays on supply GND; signal stays on PA1 |
 
 In other words, break one existing load wire and insert the sensor's two current
@@ -73,8 +73,8 @@ and generated build configuration:
 
 | Existing function | Pins kept |
 | --- | --- |
-| Left motor enable / direction | PB4 / PC4 / PC5 |
-| Right motor enable / direction | PB5 / PC6 / PC7 |
+| Left motor enable / direction | PB5 / PC6 / PC7 |
+| Right motor enable / direction | PB4 / PC4 / PC5 |
 | Left encoder A/B | PC0 / PC1 |
 | Right encoder A/B | PC2 / PC3 |
 | Left / right blinkers | PC8 / PC10 |
@@ -96,7 +96,10 @@ This checks the repository's configuration; physical wiring must match it.
 
 The ADC mapping is already configured in `boards/nucleo_f401re.overlay`.
 `include/current_sensor.h` now uses nominal 1250000 uV zero offsets for this divider.
-Sensitivities remain zero (unavailable amperage) until each module's range is known:
+All three modules are confirmed 5A with 10k/10k dividers. Their sensitivities are
+set to nominal 92500 uV/A; zero offsets and reference still require measurement.
+A valid current bit means conversion is available, not that calibration accuracy
+has been verified. Reference values for other variants:
 
 | ACS712 marking | Nominal sensor sensitivity at 5 V | Set ADC-pin `*_UV_PER_AMP` with this divider |
 | --- | --- | --- |

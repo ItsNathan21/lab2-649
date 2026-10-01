@@ -26,23 +26,23 @@
 #define CURRENT_SENSOR_PRINT_MS 500U
 
 /* ACS712 powered at 5 V, with separate 10k/10k dividers on OUT: ADC voltage = OUT/2.
- * The 5A/20A/30A variant is not yet confirmed, so sensitivities remain unset.
+ * Confirmed 5A modules use nominal 185 mV/A, divided to 92500 uV/A at the ADC.
  * Nominal zero is 1.25 V at the ADC; replace with each measured zero-current voltage.
  * Nominal ADC-pin sensitivities: 5A=92500, 20A=50000, 30A=33000 uV/A.
  * See CURRENT_SENSOR_WIRING.md. Do not use undivided ACS712 sensitivities here.
  */
 /** @brief Nominal left zero after the 1:2 divider; replace with measured zero-current uV. */
 #define CURRENT_SENSOR_LEFT_ZERO_UV 1250000
-/** @brief Unset left sensitivity in microvolts per amp; zero means uncalibrated. */
-#define CURRENT_SENSOR_LEFT_UV_PER_AMP 0
+/** @brief Nominal left sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
+#define CURRENT_SENSOR_LEFT_UV_PER_AMP 92500
 /** @brief Nominal right zero after the 1:2 divider; replace with measured zero-current uV. */
 #define CURRENT_SENSOR_RIGHT_ZERO_UV 1250000
-/** @brief Unset right sensitivity in microvolts per amp; zero means uncalibrated. */
-#define CURRENT_SENSOR_RIGHT_UV_PER_AMP 0
+/** @brief Nominal right sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
+#define CURRENT_SENSOR_RIGHT_UV_PER_AMP 92500
 /** @brief Nominal servo zero after the 1:2 divider; replace with measured zero-current uV. */
 #define CURRENT_SENSOR_SERVO_ZERO_UV 1250000
-/** @brief Unset servo sensitivity in microvolts per amp; zero means uncalibrated. */
-#define CURRENT_SENSOR_SERVO_UV_PER_AMP 0
+/** @brief Nominal servo sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
+#define CURRENT_SENSOR_SERVO_UV_PER_AMP 92500
 
 /** @brief Coherent scan; valid bits refer to calibrated current, not sensor presence. */
 struct current_sensor_snapshot {

@@ -9,7 +9,11 @@
 
 _Static_assert(SERVO_MIN_PULSE_US > 0U && SERVO_MIN_PULSE_US < SERVO_CENTER_PULSE_US &&
 	       SERVO_CENTER_PULSE_US < SERVO_MAX_PULSE_US, "Invalid servo pulse limits");
-_Static_assert(SERVO_MAX_PULSE_US <= UINT32_MAX / 1000U, "Servo pulse exceeds PWM range");
+_Static_assert(SERVO_MIN_PULSE_US >= 500U && SERVO_MAX_PULSE_US <= 2500U,
+	       "Pulse limits must stay within the LD-1501MG range");
+_Static_assert(SERVO_UPDATE_DEADBAND_US < SERVO_CENTER_PULSE_US - SERVO_MIN_PULSE_US &&
+	       SERVO_UPDATE_DEADBAND_US < SERVO_MAX_PULSE_US - SERVO_CENTER_PULSE_US,
+	       "Servo deadband must be smaller than each half of the travel");
 _Static_assert(SERVO_REVERSED == 0 || SERVO_REVERSED == 1, "Servo reversal must be 0 or 1");
 
 static const struct pwm_dt_spec output = PWM_DT_SPEC_GET(DT_NODELABEL(steering_servo));
@@ -54,7 +58,8 @@ int servo_init(void)
 	if (!pwm_is_ready_dt(&output)) {
 		return -ENODEV;
 	}
-	if (PWM_USEC(SERVO_MAX_PULSE_US) >= output.period) {
+	if (output.period != PWM_USEC(SERVO_PERIOD_US) ||
+	    output.flags != PWM_POLARITY_NORMAL) {
 		return -EINVAL;
 	}
 	int ret = pwm_set_pulse_dt(&output, PWM_USEC(SERVO_CENTER_PULSE_US));
@@ -78,7 +83,15 @@ int servo_set_steering(int16_t steering)
 	}
 	uint32_t pulse = steering_pulse(steering);
 
-	if (pulse == applied_pulse_ns) {
+	uint32_t change = pulse > applied_pulse_ns ?
+		pulse - applied_pulse_ns : applied_pulse_ns - pulse;
+	bool landmark = steering == WHEEL_STEERING_LEFT ||
+		steering == WHEEL_STEERING_CENTER || steering == WHEEL_STEERING_RIGHT;
+
+	/* Keep exact center/endpoints and always resume immediately after a disable. */
+	if (pulse == applied_pulse_ns ||
+	    (applied_pulse_ns != 0U && !landmark &&
+	     change < PWM_USEC(SERVO_UPDATE_DEADBAND_US))) {
 		return 0;
 	}
 	int ret = pwm_set_pulse_dt(&output, pulse);
@@ -97,6 +110,9 @@ int servo_disable(void)
 {
 	if (!initialized) {
 		return -ENODEV;
+	}
+	if (applied_pulse_ns == 0U) {
+		return 0;
 	}
 	int ret = pwm_set_pulse_dt(&output, 0U);
 

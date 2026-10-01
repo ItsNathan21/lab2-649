@@ -9,19 +9,27 @@
 
 #include "motor.h"
 
+/* Overlay indices follow bridge A/B; physical left is B and physical right is A. */
 static const struct pwm_dt_spec enables[MOTOR_COUNT] = {
-	PWM_DT_SPEC_GET_BY_IDX(DT_PATH(motors), 0),
-	PWM_DT_SPEC_GET_BY_IDX(DT_PATH(motors), 1),
+	[MOTOR_LEFT] = PWM_DT_SPEC_GET_BY_IDX(DT_PATH(motors), 1),
+	[MOTOR_RIGHT] = PWM_DT_SPEC_GET_BY_IDX(DT_PATH(motors), 0),
 };
 static const struct gpio_dt_spec inputs[MOTOR_COUNT][2] = {
-	{ GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 0),
-	  GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 1) },
-	{ GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 2),
-	  GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 3) },
+	[MOTOR_LEFT] = {
+		GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 2),
+		GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 3),
+	},
+	[MOTOR_RIGHT] = {
+		GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 0),
+		GPIO_DT_SPEC_GET_BY_IDX(DT_PATH(motors), direction_gpios, 1),
+	},
 };
 
-/* Adjust after verifying wheel direction with a low-duty, raised-wheel test. */
-static const int polarity[MOTOR_COUNT] = { 1, 1 };
+/* Preserve forward rotation: bridge B uses reversed inputs, bridge A uses normal inputs. */
+static const int polarity[MOTOR_COUNT] = {
+	[MOTOR_LEFT] = -1,
+	[MOTOR_RIGHT] = 1,
+};
 static K_MUTEX_DEFINE(motor_lock);
 static bool ready;
 static bool faulted;

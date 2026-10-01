@@ -96,7 +96,9 @@ static void stop_on_fault(const char *reason)
 	reset_drive();
 	int ret = motors_brake();
 
-	printk("PID stopped: %s; brake=%d. Reset to restart.\n", reason, ret);
+	printk("PID stopped: %s; brake=%d; L=%lld R=%lld mRPM. Reset to restart.\n",
+	       reason, ret, (long long)states[MOTOR_LEFT].speed_mrpm,
+	       (long long)states[MOTOR_RIGHT].speed_mrpm);
 }
 
 /**

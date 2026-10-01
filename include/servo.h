@@ -6,6 +6,11 @@
 
 #include <stdint.h>
 
+/** @brief LD-1501MG requires a 20 ms PWM frame, equivalent to 50 Hz. */
+#define SERVO_PERIOD_US 20000U
+/** @brief Ignore changes under 3 us (0.27 degrees); initial noise tuning, 0 disables it. */
+#define SERVO_UPDATE_DEADBAND_US 3U
+
 /** @brief LD-1501MG nominal 0-degree endpoint is 500 us; restrict it for linkage clearance. */
 #define SERVO_MIN_PULSE_US    500U
 /** @brief LD-1501MG nominal midpoint is 1500 us; adjust for mechanical centering. */
@@ -22,7 +27,7 @@
 int servo_init(void);
 
 /**
- * @brief Map wheel steering into the configured pulse limits; hardware repeats the PWM.
+ * @brief Map steering into pulse limits with a small change deadband; hardware repeats PWM.
  * @param steering Signed wheel position: -32768 left, 0 center, 32767 right.
  * @return 0 on success, -ENODEV before initialization, or a negative PWM error.
  */
