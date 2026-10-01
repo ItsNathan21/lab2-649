@@ -18,6 +18,18 @@
 #define UART_FRAME_SIZE 16U
 /** @brief Eight payload bytes preserve the existing wheel field layout. */
 #define UART_PAYLOAD_SIZE 8U
+/** @brief Three signed current readings fit in the first six status payload bytes. */
+#define UART_CURRENT_COUNT 3U
+/** @brief Payload version 1 distinguishes current telemetry from legacy all-zero status. */
+#define UART_CURRENT_VERSION 1U
+/** @brief Bits 0..2 identify valid left, right, and servo readings respectively. */
+#define UART_CURRENT_VALID_MASK 0x07U
+
+/** @brief Status currents in mA; a clear validity bit means unavailable, never zero amps. */
+struct uart_current_status {
+	int16_t milliamps[UART_CURRENT_COUNT];
+	uint8_t valid_mask;
+};
 /** @brief Distinct sync bytes permit recovery after missing or corrupt bytes. */
 #define UART_SYNC_FIRST 0xa5U
 /** @brief The second sync byte completes the chosen two-byte marker. */
@@ -83,4 +95,17 @@ uint16_t uart_get_u16(const uint8_t *bytes);
  * @param value Word to serialize.
  */
 void uart_put_u16(uint8_t *bytes, uint16_t value);
+/**
+ * @brief Encode three signed currents, their validity mask, and a payload version.
+ * @param status Current snapshot; invalid channels are serialized as zero with validity clear.
+ * @param payload Eight-byte status payload destination.
+ */
+void uart_current_encode(const struct uart_current_status *status, uint8_t *payload);
+/**
+ * @brief Decode status telemetry without treating old firmware's zeros as valid currents.
+ * @param payload Eight-byte status payload.
+ * @param status Destination, cleared if the version or mask is unsupported.
+ * @return True for a supported payload, false for unknown version or malformed mask.
+ */
+bool uart_current_decode(const uint8_t *payload, struct uart_current_status *status);
 #endif /* UART_PROTOCOL_H_ */

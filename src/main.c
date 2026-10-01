@@ -10,6 +10,7 @@
 #include "uart_receiver.h"
 #include "uart_status.h"
 #include "servo.h"
+#include "current_sensor.h"
 
 /**
  * @brief Initialize drivers and start UART motor control and encoder monitoring.
@@ -58,6 +59,11 @@ int main(void)
 
 		printk("UART status start failed: %d; brake=%d\n", ret, brake_ret);
 		return ret;
+	}
+	ret = current_sensor_start();
+	if (ret != 0) {
+		/* Lab 2 current sensing is read-only; heartbeat reports unavailable data. */
+		printk("Current sensor start failed: %d; telemetry unavailable\n", ret);
 	}
 	ret = encoder_monitor_start();
 	if (ret != 0) {

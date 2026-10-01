@@ -20,6 +20,22 @@
 
 static volatile sig_atomic_t keep_running = 1;
 
+/** @brief Format one current value, explicitly marking stale or uncalibrated data.
+ * @param output Destination of at least 24 bytes.
+ * @param currents Latest decoded status currents.
+ * @param channel Left, right, or servo index.
+ * @param fresh True only while the STM heartbeat remains live.
+ */
+static void format_current(char *output, const struct uart_current_status *currents,
+			   unsigned int channel, bool fresh)
+{
+	if (fresh && (currents->valid_mask & (1U << channel)) != 0U) {
+		snprintf(output, 24, "%d mA", (int)currents->milliamps[channel]);
+	} else {
+		snprintf(output, 24, "unavailable");
+	}
+}
+
 /** @brief Request loop exit so diagnostic descriptor flags can be restored.
  * @param signal_number Delivered termination signal.
  */
@@ -257,6 +273,7 @@ int main(int argc, char **argv)
 	uint32_t wheel_sequence = 0;
 	uint16_t status_sequence = 0;
 	uint8_t status_faults = UART_FAULT_LINK;
+	struct uart_current_status currents = {0};
 	bool have_wheel = false;
 	bool have_status = false;
 
@@ -283,10 +300,17 @@ int main(int argc, char **argv)
 			}
 		}
 		if (now - last_print >= PI_STATUS_PRINT_MS) {
-			printf("STM heartbeat=%s faults=0x%02x wheel=%s\n",
+			char current_text[UART_CURRENT_COUNT][24];
+
+			for (unsigned int i = 0; i < UART_CURRENT_COUNT; i++) {
+				format_current(current_text[i], &currents, i,
+					       now - last_status < UART_LINK_TIMEOUT_MS);
+			}
+			printf("STM heartbeat=%s faults=0x%02x wheel=%s current L=%s R=%s S=%s\n",
 			       now - last_status < UART_LINK_TIMEOUT_MS ? "OK" : "MISSING",
 			       (unsigned int)status_faults,
-			       now - last_wheel < PI_WHEEL_TIMEOUT_MS ? "fresh" : "STALE");
+			       now - last_wheel < PI_WHEEL_TIMEOUT_MS ? "fresh" : "STALE",
+			       current_text[0], current_text[1], current_text[2]);
 			last_print = now;
 		}
 		int64_t wait = next_tx - now_ms();
@@ -325,6 +349,7 @@ int main(int argc, char **argv)
 						last_status = now;
 						status_sequence = status.sequence;
 						status_faults = status.flags;
+						(void)uart_current_decode(status.payload, &currents);
 						have_status = true;
 					}
 				}

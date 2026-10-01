@@ -106,7 +106,7 @@ ST-LINK USB. Both directions use 16-byte frames: sync A5 5A, type, flags,
 little-endian 16-bit sequence, eight payload bytes, then little-endian CRC-16/CCITT-FALSE
 over the first 14 bytes. Command type is 0x11; status type is 0x12.
 The command payload remains signed 16-bit steering, throttle, brake, then an unsigned
-16-bit button mask (bits 0-5, 8, 9), all little-endian. Status payload is reserved/zero.
+16-bit button mask (bits 0-5, 8, 9), all little-endian. Status payload carries three signed current readings in mA, a validity mask, and a payload version (see Current sensors below).
 Command flags: bit 0 = fresh wheel input; bit 1 = fresh STM heartbeat.
 Status flags: 0x01 link timeout, 0x02 stale source/return link, 0x04 self-test,
 0x08 hardware/PID fault. Zero means normal. Sequences wrap modulo 65536;
@@ -185,6 +185,88 @@ UART passes the latest validated steering value to `servo_set_steering()`. UART
 fail-safe disables the signal rather than commanding a sudden recenter; behavior
 without pulses depends on the servo. Fresh steering resumes after recovery.
 
+## Current sensors (bring-up; calibration pending)
+
+Lab 2 section 3.5 requires three sensors (left motor, right motor, servo), reported
+in each status heartbeat. Readings are informational: they do not alter PID,
+braking, hazards, or the fault state. The sensors are **ACS712**; the 5A/20A/30A
+variant is still needed to select amperage scaling.
+
+Use the complete [ACS712 wiring plan](CURRENT_SENSOR_WIRING.md). Assigned inputs:
+
+| Sensor | Arduino header | STM32 pin | ADC1 channel |
+| --- | --- | --- | --- |
+| Left motor | A0 / CN8 pin 1 | PA0 | 0 |
+| Right motor | A2 / CN8 pin 3 | PA4 | 4 |
+| Servo | A3 / CN8 pin 4 | PB0 | 8 |
+
+These avoid existing actuator, encoder, communication, and debug assignments.
+Each sensor uses 5 V power and its own 10k/10k output divider; do not connect
+an undivided ACS712 OUT to these ADC pins. The wiring document distinguishes
+sensor signal wiring from the separate series current path through its terminals.
+
+`current_sensor` runs at priority 5, below UART status (2), command handling (3),
+and motor PID (4). It reads each input sequentially every 10 ms using 12-bit ADC
+conversions, with maximum acquisition time as an initial source-impedance allowance.
+It averages the latest four successful scans, a nominal 40 ms window with roughly
+15 ms group delay once full. Read errors and ADC rail clipping reset that channel's
+filter. Actual timing and PWM-noise rejection still need bench measurement.
+The heartbeat copies a short, spinlock-protected snapshot and never waits for ADC
+conversions. Data older than 100 ms is invalidated. Current sampling failure does
+not stop actuator control or heartbeat transmission.
+
+Calibration lives in `include/current_sensor.h`:
+
+- `CURRENT_SENSOR_REFERENCE_UV`: nominal 3300000; replace with measured ADC reference.
+- Each `*_ZERO_UV`: nominal 1250000 after the divider; replace with measured ADC-pin voltage at zero load current.
+- Each `*_UV_PER_AMP`: signed voltage change at the ADC pin per amp, including any
+  divider. **All sensitivities remain zero until the variant is confirmed.**
+  With the selected divider, nominal values are 92500 (5A), 50000 (20A), or
+  33000 (30A) uV/A; check each module independently.
+
+The conversion is `mA = (ADC_pin_uV - zero_uV) * 1000 / uV_per_A`.
+Voltage uses `average_raw * reference_uV / 4096`; nominal voltage resolution is
+about 806 uV/count. Current resolution is `reference_uV / 4096 / abs(uV_per_A)`
+amps/count. A negative sensitivity supports reversed sensor orientation.
+Do not automatically zero at boot: the motors/servo may already be drawing current.
+Floating/disconnected analog inputs cannot be reliably identified by software;
+validity means a fresh calibrated, unclipped conversion, not verified sensor presence.
+
+The STM console prints raw counts, averaged mV, converted mA, and masks twice per
+second, always ordered left/right/servo. `sampled=0x07` means all three ADC reads
+succeeded; `valid=0x00` is expected until calibration is supplied. **An mA value
+without its validity bit is unavailable, not a measurement of zero current.**
+
+The existing 16-byte status frame and CRC are unchanged. Its eight payload bytes are:
+
+| Payload bytes | Meaning |
+| --- | --- |
+| 0..1 | Left motor signed int16 mA, little-endian |
+| 2..3 | Right motor signed int16 mA, little-endian |
+| 4..5 | Servo signed int16 mA, little-endian |
+| 6 | Validity bits 0=left, 1=right, 2=servo; other bits zero |
+| 7 | Current payload version = 1 |
+
+Unavailable channels are encoded as zero with their bit clear. Uncalibrated,
+failed, stale, clipped, or out-of-int16-range readings are unavailable. Fault flags
+in the frame header retain their previous meaning. The updated Pi forwarder prints
+`current L=... R=... S=...`, displaying `unavailable` for invalid readings or a stale
+heartbeat. Legacy all-zero payloads are recognized as unavailable. Rebuild the Pi
+forwarder with the shared `uart_protocol.c` to see the new diagnostics.
+
+Before checkoff, confirm the sensor range and completed wiring, calibrate with measured
+reference/zero/current values, and record rest, running, and brief-stall readings
+for all three channels as the handout requests. None of those hardware measurements
+has been performed by this change; current sensing is not ready for checkoff yet.
+
+Portable regression tests (no board required):
+
+```bash
+cc -std=c11 -Wall -Wextra -Werror -Iinclude tests/current_test.c \
+  src/current_conversion.c src/uart_protocol.c -o /tmp/lab2-current-test
+/tmp/lab2-current-test
+```
+
 ## Blinkers
 
 Press left blinker (button 5) or right blinker (button 4) once to enable that side;
@@ -223,7 +305,7 @@ ramp. Normal pedal braking does not activate hazards. The PID console now includ
 This uses the L298's [dynamic braking mode](https://www.st.com/resource/en/datasheet/l298.pdf):
 it shorts the motor terminals through the bridge rather than applying reverse drive.
 It does not provide powered holding torque at zero speed. Braking current must remain
-within the driver's rating; software has no current measurement.
+within the driver's rating; current telemetry is read-only and does not impose current limits.
 
 - Pi commands and STM status heartbeats run every **20 ms**, including during faults.
 - **60 ms without a valid advancing command** (three missed updates) triggers fail-safe.
@@ -280,6 +362,9 @@ Continue past startup before restarting the Pi sender; prints appear in miniterm
 
 ## Source map
 
+- `src/current_sensor.c`, `include/current_sensor.h`: ADC sampling, calibration settings, and snapshots.
+- `src/current_conversion.c`, `include/current_conversion.h`: portable voltage-to-current conversion.
+- `tests/current_test.c`: calibration and current telemetry regression tests.
 - `src/blinker.c`, `include/blinker.h`: GPIO blinker worker and timing configuration.
 - `src/servo.c`, `include/servo.h`: steering PWM mapping and pulse calibration.
 - `src/main.c`: initialize drivers and start UART motor control and encoder monitoring.

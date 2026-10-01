@@ -8,6 +8,8 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(lab2)
 
 target_sources(app PRIVATE
+  src/current_conversion.c
+  src/current_sensor.c
   src/blinker.c
   src/main.c
   src/encoder.c

@@ -50,7 +50,9 @@ Use tabs for C indentation, `snake_case`, braces on separate lines for functions
 
 - `main.c`: initializes drivers and starts speed PID, UART, blinkers, and encoder reporting.
 - `uart_receiver.c/.h`: USART1 interrupt, private packet queue, command worker, and start API. It sends speed requests to motor_controller, steering to servo, and enable states to blinker.
-- `uart_status.c/.h`: dedicated periodic status heartbeat worker.
+- `uart_status.c/.h`: dedicated periodic status heartbeat worker with current telemetry.
+- `current_sensor.c/.h`: read-only ADC worker, per-channel calibration, and coherent snapshots.
+- `current_conversion.c/.h`: portable signed voltage-to-current conversion.
 - `uart_protocol.c/.h`: portable framing shared with the Pi.
 - `servo.c/.h`: hardware PWM steering mapping; main initializes it, then UART owns updates.
 - `blinker.c/.h`: independent indicator GPIO timing and enable/disable API.

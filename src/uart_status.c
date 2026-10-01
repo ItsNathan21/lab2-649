@@ -11,6 +11,9 @@
 #include "uart_protocol.h"
 #include "uart_receiver.h"
 #include "uart_status.h"
+#include "current_sensor.h"
+
+_Static_assert(CURRENT_SENSOR_COUNT == UART_CURRENT_COUNT, "Current channel count mismatch");
 
 static const struct device *const output = DEVICE_DT_GET(DT_NODELABEL(usart1));
 static K_THREAD_STACK_DEFINE(status_stack, UART_STATUS_STACK_SIZE);
@@ -32,7 +35,15 @@ static void status_worker(void *arg1, void *arg2, void *arg3)
 	ARG_UNUSED(arg3);
 	while (true) {
 		uint8_t bytes[UART_FRAME_SIZE];
+		struct current_sensor_snapshot sample;
+		struct uart_current_status currents = {0};
 
+		current_sensor_snapshot(&sample);
+		currents.valid_mask = sample.valid_mask;
+		for (unsigned int i = 0; i < UART_CURRENT_COUNT; i++) {
+			currents.milliamps[i] = sample.milliamps[i];
+		}
+		uart_current_encode(&currents, frame.payload);
 		frame.flags = uart_receiver_faults();
 		uart_frame_encode(&frame, bytes);
 		for (size_t i = 0; i < sizeof(bytes); i++) {
