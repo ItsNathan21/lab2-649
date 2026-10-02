@@ -57,10 +57,33 @@ If the console device differs, check `ls /dev/ttyACM*`. Exit miniterm with Ctrl+
 On the Pi, from this repository's `pi/proxy_receiver` directory:
 
 ```bash
-gcc -std=c11 -Wall -Wextra -O2 -I../../include receiver.c ../../src/uart_protocol.c -o proxy_receiver
+gcc -std=c11 -Wall -Wextra -O2 -I../../include receiver.c trace_gpio.c ../../src/uart_protocol.c -o proxy_receiver
 hostname -I
 ./proxy_receiver /dev/serial0
 ```
+
+For scope timing on a Pi 4B, run `./proxy_receiver /dev/serial0 --trace-gpio`.
+This claims GPIO23 (physical pin 16) for `UDP_RX` and GPIO24 (physical pin 18)
+for `CMD_TX`; each event toggles its line, so use both rising and falling edges.
+Connect the analyser ground to Pi GND (e.g. physical pin 6).
+UART data remains on GPIO14/15 (physical pins 8/10).
+The markers require Linux GPIO v2 headers/kernel (5.10+) and access to
+`/dev/gpiochip0`; Raspberry Pi OS normally grants this through the `gpio` group.
+If needed, add your user with `sudo usermod -aG gpio "$USER"` and log in again.
+Pin and chip settings are in `pi/proxy_receiver/trace_gpio.h`; reserve these pins
+for measurement. No external GPIO library is required.
+
+`UDP_RX` marks return from each 276-byte UDP receive, even if later rejected as
+stale or invalid. `CMD_TX` marks completion of a whole command's writes to the
+kernel UART queue (every 20 ms), not electrical transmission completion.
+Userspace scheduling and GPIO ioctl overhead affect these timestamps.
+For exact serial timing, probe GPIO14 directly. Markers are disabled unless
+`--trace-gpio` is supplied and are released on normal exit.
+
+STM32 measurement points currently available: `PWM_OUT` is PB5 for the left
+motor or PB4 for the right. Use PC6 (IN3) as the left direction-input probe,
+or PC4 (IN1) for the right; each bridge also has its second input PC7/PC5.
+`PWM_SET` and `CMD_RX` have no dedicated GPIO markers implemented yet.
 
 The Pi UART must be enabled with its serial login console disabled.
 `/dev/serial0` currently resolves to `/dev/ttyS0` on this Pi; the program prints

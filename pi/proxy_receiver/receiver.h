@@ -23,8 +23,8 @@
 
 /**
  * @brief Run the UDP-to-UART forwarder, printing every received datagram.
- * @param argc Argument count; exactly two are required.
- * @param argv Program name and the UART device path.
+ * @param argc Two, or three with optional GPIO tracing.
+ * @param argv Program name, UART device path, and optional --trace-gpio.
  * @return EXIT_SUCCESS on termination, or EXIT_FAILURE for arguments/I/O errors.
  */
 int main(int argc, char **argv);

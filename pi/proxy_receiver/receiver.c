@@ -2,6 +2,7 @@
  * @brief Pi UDP-to-UART forwarding and packet diagnostics.
  */
 #include "receiver.h"
+#include "trace_gpio.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -206,16 +207,28 @@ static bool decode_wheel(const uint8_t *bytes, ssize_t length, struct uart_frame
 }
 
 /** @brief Exchange periodic UART frames while accepting fresh wheel UDP input.
- * @param argc Must be two.
- * @param argv Program name and UART device path.
+ * @param argc Two, or three when enabling timing markers.
+ * @param argv Program name, UART device path, and optional --trace-gpio.
  * @return EXIT_SUCCESS on termination, or EXIT_FAILURE on arguments/I/O failure.
  */
 int main(int argc, char **argv)
 {
 	setvbuf(stdout, NULL, _IONBF, 0);
-	if (argc != 2) {
-		fprintf(stderr, "Usage: %s /dev/serial0\n", argv[0]);
+	if (argc < 2 || argc > 3 || (argc == 3 && strcmp(argv[2], "--trace-gpio") != 0)) {
+		fprintf(stderr, "Usage: %s /dev/serial0 [--trace-gpio]\n", argv[0]);
 		return EXIT_FAILURE;
+	}
+	if (argc == 3) {
+		if (trace_gpio_init() < 0) {
+			perror("GPIO timing markers (check chip, permissions and occupied pins)");
+			return EXIT_FAILURE;
+		}
+		if (atexit(trace_gpio_close) != 0) {
+			trace_gpio_close();
+			return EXIT_FAILURE;
+		}
+		printf("Timing: UDP_RX=GPIO%u (pin 16), CMD_TX=GPIO%u (pin 18)\n",
+		       TRACE_GPIO_UDP_RX, TRACE_GPIO_CMD_TX);
 	}
 	int uart = open_uart(argv[1]);
 
@@ -293,6 +306,11 @@ int main(int argc, char **argv)
 				perror("UART write");
 				break;
 			}
+			/* Marks completed kernel write, not the last UART bit on the wire. */
+			if (trace_gpio_toggle(TRACE_CMD_TX) < 0) {
+				perror("CMD_TX marker");
+				break;
+			}
 			command.sequence++;
 			next_tx += UART_LINK_PERIOD_MS;
 			if (next_tx <= now_ms()) {
@@ -365,6 +383,11 @@ int main(int argc, char **argv)
 					continue;
 				}
 				perror("UDP receive");
+				break;
+			}
+			/* Mark each state-sized receive before decoding or printing its contents. */
+			if (count == UDP_SIZE && trace_gpio_toggle(TRACE_UDP_RX) < 0) {
+				perror("UDP_RX marker");
 				break;
 			}
 			if (decode_wheel(bytes, count, &candidate)) {
