@@ -12,6 +12,7 @@ target_sources(app PRIVATE
   src/current_sensor.c
   src/blinker.c
   src/console_status.c
+  src/test_points.c
   src/main.c
   src/encoder.c
   src/encoder_monitor.c

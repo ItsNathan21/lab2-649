@@ -14,9 +14,10 @@ checkoff or submission.
 
 ## Must do
 1. **Commit and push.** All of the work above is uncommitted.
-2. **Test-point GPIO toggles (checkoff item 10, timing).** `CMD_RX` and `PWM_SET` on the
-   STM32, and `UDP_RX` and `CMD_TX` on the Pi. Without them the TAs cannot measure
-   throttle, brake or steering response. This needs 2 free STM32 pins and 2 free Pi GPIOs.
+2. **Wire and verify test points.** Code is implemented: PC9/PC11 STM32 markers,
+   Pi GPIO23/24 (`--trace-gpio`), and four blinker outputs. Follow
+   [TEST_POINTS.md](TEST_POINTS.md); flash, restart the Pi, and measure on hardware.
+   The 20 ms PID cycle remains a risk against the required 2 ms motor response.
 3. **Wi-Fi hazard flashes.** Run `sudo iw wlan0 set power_save off` on the Pi, or connect
    the laptop and Pi with Ethernet. Otherwise the hazards may flash randomly during the
    demo.
@@ -25,8 +26,8 @@ checkoff or submission.
    the integral too slow (`include/motor_controller.h`).
 
 ## Should do
-5. **Four blinker outputs** (FL, FR, RL, RR). There are only 2 pins (PC8, PC10); ask the TA
-   whether pairs sharing a pin are acceptable.
+5. **Rewire rear blinkers.** Code now uses FL=PC8, FR=PC10, RL=PC12, RR=PD2.
+   Separate the rear control wires and measure front/rear timing on the scope.
 6. **Bad-input demo (checkoff item 8).** A way to send a rejected command, for example a Pi
    flag that sends a malformed frame.
 7. **Probe breadboard.** 13 labeled rows, in the handout's order.

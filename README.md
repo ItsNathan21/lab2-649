@@ -1,5 +1,7 @@
 # Lab 2: throttle-controlled motors
 
+**All 13 checkoff probe rows:** [TEST_POINTS.md](TEST_POINTS.md) has the wiring and scope guide.
+
 **Run instructions (macOS and Windows):** [RUNNING.md](RUNNING.md) covers setup, build/flash, the Pi forwarder, and the wheel GUI.
 
 **Full wiring guide:** [WIRING.md](WIRING.md) covers motor connector pins, H-bridge, servo, sensors, power, and UART.
@@ -80,10 +82,10 @@ Userspace scheduling and GPIO ioctl overhead affect these timestamps.
 For exact serial timing, probe GPIO14 directly. Markers are disabled unless
 `--trace-gpio` is supplied and are released on normal exit.
 
-STM32 measurement points currently available: `PWM_OUT` is PB5 for the left
-motor or PB4 for the right. Use PC6 (IN3) as the left direction-input probe,
-or PC4 (IN1) for the right; each bridge also has its second input PC7/PC5.
-`PWM_SET` and `CMD_RX` have no dedicated GPIO markers implemented yet.
+STM32 `CMD_RX` is PC9 (complete CRC-valid command before queueing), and `PWM_SET`
+is PC11 (successful right-motor timer write). Pair those with PB4 (`PWM_OUT`, ENA)
+and PC4 (`DIR_A`, IN1). The probe-board motor signals consistently use the right wheel.
+Markers toggle on both rising and falling edges. See [TEST_POINTS.md](TEST_POINTS.md).
 
 The Pi UART must be enabled with its serial login console disabled.
 `/dev/serial0` currently resolves to `/dev/ttyS0` on this Pi; the program prints
@@ -123,8 +125,9 @@ Use STM32 GPIO labels, not similarly named Arduino RX/TX labels.
 | L298 ENB / IN3 / IN4 | PB5 / PC6 / PC7 |
 | Left encoder A / B | PC0 / PC1 |
 | Right encoder A / B | PC2 / PC3 |
-| Left blinker output | PC8 |
-| Right blinker output | PC10 |
+| Front-left / rear-left blinker | PC8 / PC12 |
+| Front-right / rear-right blinker | PC10 / PD2 |
+| CMD_RX / PWM_SET markers | PC9 / PC11 |
 | Steering servo signal | PA1 / TIM2 channel 2 |
 
 Left motor connects to **OUT3/OUT4** (ENB / IN3 / IN4);
@@ -328,8 +331,9 @@ Only one side blinks at a time: enabling one side cancels the other. Each starts
 500 ms off (1 Hz, 50% duty). Change `BLINKER_RATE_HZ` in `include/blinker.h` to
 adjust the rate; use a value that divides 500 for whole-millisecond half-periods.
 
-PC8 drives the left LED group and PC10 the right, active high. Keep these output
-pins separate; share ground, not the outputs. Use suitable LED current limiting
+PC8/PC12 drive front-left/rear-left and PC10/PD2 front-right/rear-right, active high.
+All four pins are separate electrical outputs; front/rear share a timing state per side.
+Keep these output pins separate; share ground, not the outputs. Use suitable LED current limiting
 and a transistor driver if a group exceeds the GPIO current rating.
 The module owns toggle state. An enabled side arms auto-cancel when its estimated
 servo angle exceeds `BLINKER_CANCEL_DEGREES` (initially 10 degrees from center on

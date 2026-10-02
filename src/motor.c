@@ -8,6 +8,7 @@
 #include <zephyr/kernel.h>
 
 #include "motor.h"
+#include "test_points.h"
 
 /* Overlay indices follow bridge A/B; physical left is B and physical right is A. */
 static const struct pwm_dt_spec enables[MOTOR_COUNT] = {
@@ -60,7 +61,11 @@ static int set_enable(unsigned int side, uint32_t duty)
 	uint32_t pulse = (period * duty + MOTOR_DUTY_FULL_SCALE / 2U) /
 			 MOTOR_DUTY_FULL_SCALE;
 
-	return pwm_set_cycles(pwm->dev, pwm->channel, (uint32_t)period, pulse, pwm->flags);
+	ret = pwm_set_cycles(pwm->dev, pwm->channel, (uint32_t)period, pulse, pwm->flags);
+	if (ret == 0 && side == MOTOR_RIGHT) {
+		test_points_pwm_written();
+	}
+	return ret;
 }
 
 /* Always try both, even if one fails. */

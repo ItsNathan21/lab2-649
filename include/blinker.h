@@ -16,7 +16,7 @@
 /** @brief Priority 3 lets hazard changes run promptly ahead of routine reporting. */
 #define BLINKER_PRIORITY       3
 
-/** @brief The two indicator outputs; enabling one side cancels the other. */
+/** @brief The two indicator sides (each has front and rear outputs); enabling one side cancels the other. */
 enum blinker_side {
 	BLINKER_LEFT,
 	BLINKER_RIGHT,
@@ -32,7 +32,7 @@ struct blinker_state {
 };
 
 /**
- * @brief Initialize both outputs off and start the worker; call once from main.
+ * @brief Initialize all four outputs off and start the worker; call once from main.
  * @return 0 on success, -EALREADY if started, or a negative GPIO error.
  */
 int blinker_init(void);

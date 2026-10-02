@@ -48,6 +48,9 @@ Use tabs for C indentation, `snake_case`, braces on separate lines for functions
 
 ## Current layout
 
+- `test_points.c/.h`: STM32 PC9 command-reception and PC11 right-motor timer-write markers.
+- `pi/proxy_receiver/trace_gpio.c/.h`: optional Pi GPIO23/24 timing markers.
+
 - `main.c`: initializes drivers and starts speed PID, UART, blinkers, and encoder reporting.
 - `uart_receiver.c/.h`: USART1 interrupt, private packet queue, command worker, and start API. It sends speed requests to motor_controller, steering to servo, and enable states to blinker.
 - `uart_status.c/.h`: dedicated periodic status heartbeat worker with current telemetry.
@@ -56,7 +59,7 @@ Use tabs for C indentation, `snake_case`, braces on separate lines for functions
 - `uart_protocol.c/.h`: portable framing shared with the Pi.
 - `servo.c/.h`: hardware PWM steering mapping; main initializes it, then UART owns updates.
 - `console_status.c/.h`: pinned, in-place console rows for the periodic PID/ENC/CURRENT diagnostics.
-- `blinker.c/.h`: mutually exclusive indicator GPIO timing and enable/disable API.
+- `blinker.c/.h`: four physical indicator outputs with one timing state per side and enable/disable API.
 - `encoder_monitor.c/.h`: reporting worker and start API.
 - `pedal_control.c/.h`: pure throttle/brake mapping into wheel-speed requests.
 - `motor_controller.c/.h`: independent speed PID loops, output ownership, and tuning constants.

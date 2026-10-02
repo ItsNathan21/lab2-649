@@ -10,9 +10,16 @@
 _Static_assert(BLINKER_RATE_HZ > 0U && BLINKER_RATE_HZ <= 500U, "Invalid blink rate");
 _Static_assert(1000U % (2U * BLINKER_RATE_HZ) == 0U, "Blink rate needs whole-ms phases");
 
-static const struct gpio_dt_spec outputs[BLINKER_COUNT] = {
-	GPIO_DT_SPEC_GET(DT_NODELABEL(left_blinker), gpios),
-	GPIO_DT_SPEC_GET(DT_NODELABEL(right_blinker), gpios),
+/* Front/rear are separate electrical outputs with one timing state per side. */
+static const struct gpio_dt_spec outputs[BLINKER_COUNT][2] = {
+	[BLINKER_LEFT] = {
+		GPIO_DT_SPEC_GET(DT_NODELABEL(left_blinker), gpios),
+		GPIO_DT_SPEC_GET(DT_NODELABEL(rear_left_blinker), gpios),
+	},
+	[BLINKER_RIGHT] = {
+		GPIO_DT_SPEC_GET(DT_NODELABEL(right_blinker), gpios),
+		GPIO_DT_SPEC_GET(DT_NODELABEL(rear_right_blinker), gpios),
+	},
 };
 static struct blinker_state states[BLINKER_COUNT];
 static K_MUTEX_DEFINE(blinker_lock);
@@ -27,6 +34,21 @@ static bool initialized;
 static bool hazards;
 static bool cancel_armed[BLINKER_COUNT];
 static int64_t hazard_epoch;
+
+/** @brief Write both native STM32 outputs without preemption between front and rear.
+ * @param side Left or right side; caller holds blinker_lock.
+ * @param level Desired common logic level.
+ * @return First GPIO error, or zero; both outputs are attempted.
+ */
+static int set_side_outputs(enum blinker_side side, bool level)
+{
+	unsigned int key = irq_lock();
+	int front = gpio_pin_set_dt(&outputs[side][0], level);
+	int rear = gpio_pin_set_dt(&outputs[side][1], level);
+
+	irq_unlock(key);
+	return front != 0 ? front : rear;
+}
 
 /**
  * @brief Apply enable changes and overdue edges for one output while holding the lock.
@@ -52,13 +74,13 @@ static void update_output(enum blinker_side side, int64_t now)
 		state->next_edge_ms += edges * BLINKER_HALF_PERIOD_MS;
 	}
 	if (state->level != old_level) {
-		int ret = gpio_pin_set_dt(&outputs[side], state->level);
+		int ret = set_side_outputs(side, state->level);
 
 		if (ret != 0) {
 			state->enabled = false;
 			state->active = false;
 			state->level = false;
-			int off_ret = gpio_pin_set_dt(&outputs[side], 0);
+			int off_ret = set_side_outputs(side, false);
 
 			printk("Blinker %d GPIO error: %d; off=%d\n", side, ret, off_ret);
 		}
@@ -104,7 +126,7 @@ static void blinker_worker(void *arg1, void *arg2, void *arg3)
 			if (hazards) {
 				int64_t half = 1000U / (2U * BLINKER_HAZARD_RATE_HZ);
 				bool level = ((now - hazard_epoch) / half % 2) == 0;
-				int ret = gpio_pin_set_dt(&outputs[side], level);
+				int ret = set_side_outputs(side, level);
 
 				if (ret != 0) {
 					printk("Hazard GPIO %d failed: %d\n", side, ret);
@@ -140,13 +162,15 @@ int blinker_init(void)
 		return -EALREADY;
 	}
 	for (enum blinker_side side = BLINKER_LEFT; side < BLINKER_COUNT; side++) {
-		if (!gpio_is_ready_dt(&outputs[side])) {
-			return -ENODEV;
-		}
-		int ret = gpio_pin_configure_dt(&outputs[side], GPIO_OUTPUT_INACTIVE);
+		for (unsigned int end = 0; end < 2; end++) {
+			if (!gpio_is_ready_dt(&outputs[side][end])) {
+				return -ENODEV;
+			}
+			int ret = gpio_pin_configure_dt(&outputs[side][end], GPIO_OUTPUT_INACTIVE);
 
-		if (ret != 0) {
-			return ret;
+			if (ret != 0) {
+				return ret;
+			}
 		}
 	}
 	initialized = true;

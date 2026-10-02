@@ -6,6 +6,7 @@
 #include "encoder.h"
 #include "encoder_monitor.h"
 #include "motor.h"
+#include "test_points.h"
 #include "motor_controller.h"
 #include "uart_receiver.h"
 #include "uart_status.h"
@@ -19,7 +20,12 @@
 int main(void)
 {
 	printk("Lab 2: wheel UART receiver on %s\n", CONFIG_BOARD_TARGET);
-	int ret = motors_init();
+	int ret = test_points_init();
+	if (ret != 0) {
+		printk("Test-point initialization failed: %d\n", ret);
+		return ret;
+	}
+	ret = motors_init();
 	if (ret != 0) {
 		printk("Motor initialization failed: %d\n", ret);
 		return ret;

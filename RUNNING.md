@@ -1,5 +1,7 @@
 # Running Lab 2 on macOS and Windows
 
+**All 13 checkoff probe rows:** [TEST_POINTS.md](TEST_POINTS.md) has the wiring and scope guide.
+
 This guide covers building/flashing the STM32, starting the Raspberry Pi forwarder,
 and sending wheel commands. Run commands on the device and in the terminal named
 in each section. You do not run the STM32 C files directly on your computer.
@@ -266,7 +268,7 @@ Adjust the first path if your Pi checkout is elsewhere:
 
 ```bash
 cd ~/lab2-649/pi/proxy_receiver
-gcc -std=c11 -Wall -Wextra -O2 -I../../include receiver.c ../../src/uart_protocol.c -o proxy_receiver
+gcc -std=c11 -Wall -Wextra -O2 -I../../include receiver.c trace_gpio.c ../../src/uart_protocol.c -o proxy_receiver
 hostname -I
 ls -l /dev/serial0
 ./proxy_receiver /dev/serial0

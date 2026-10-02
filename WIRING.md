@@ -1,5 +1,7 @@
 # Complete wiring guide
 
+**All 13 checkoff probe rows:** [TEST_POINTS.md](TEST_POINTS.md) has the wiring and scope guide.
+
 This guide matches the project's current STM32 Nucleo-F401RE pin assignments and
 the wiring selected during bring-up. It documents the intended connections, not
 an inspection of the physical assembly. Disconnect USB, motor power, and servo
@@ -164,12 +166,14 @@ internally. No extra console UART wires are needed for the standard USB connecti
 
 | Group | STM32 control pin |
 | --- | --- |
-| Left front and rear | **PC8**, active high |
-| Right front and rear | **PC10**, active high |
+| Front-left | **PC8**, active high |
+| Front-right | **PC10**, active high |
+| Rear-left | **PC12**, active high |
+| Rear-right | **PD2**, active high |
 
 Each LED needs its own current-limiting resistor. Retain the existing transistor
-or other output-driver circuit if fitted; share ground, not the left/right control
-outputs. The repository does not identify LED ratings, resistor values, or the
+or other output-driver circuit if fitted; share ground, not the four control
+outputs. Move rear lamp control off the old shared front signals onto PC12/PD2. The repository does not identify LED ratings, resistor values, or the
 physical driver circuit, so those details remain to be confirmed before rebuilding
 the LED wiring. Do not assume a GPIO can directly power an arbitrary LED group.
 

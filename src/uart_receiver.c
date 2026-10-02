@@ -12,6 +12,7 @@
 #include "motor_controller.h"
 #include "pedal_control.h"
 #include "servo.h"
+#include "test_points.h"
 
 static const struct device *const wheel_uart = DEVICE_DT_GET(DT_NODELABEL(usart1));
 K_MSGQ_DEFINE_STATIC(wheel_rx_queue, sizeof(struct wheel_rx_packet), WHEEL_RX_QUEUE_SIZE, 8);
@@ -43,6 +44,7 @@ static void wheel_uart_callback(const struct device *dev, void *user_data)
 	while (uart_fifo_read(dev, &byte, 1) == 1) {
 		if (uart_frame_feed(&parser, byte, &packet.frame) &&
 		    packet.frame.type == UART_FRAME_COMMAND) {
+			test_points_command_received();
 			packet.timestamp_ms = k_uptime_get();
 			if (k_msgq_put(&wheel_rx_queue, &packet, K_NO_WAIT) != 0) {
 				atomic_set(&receive_error, 1);

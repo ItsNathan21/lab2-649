@@ -3,6 +3,15 @@
 #include <zephyr/dt-bindings/adc/adc.h>
 
 / {
+	test_points {
+		compatible = "gpio-leds";
+		test_cmd_rx: command_rx {
+			gpios = <&gpioc 9 GPIO_ACTIVE_HIGH>;
+		};
+		test_pwm_set: pwm_set {
+			gpios = <&gpioc 11 GPIO_ACTIVE_HIGH>;
+		};
+	};
 	zephyr,user {
 		/* ACS712 divided outputs: left A0/PA0, right A2/PA4, servo A3/PB0. */
 		io-channels = <&adc1 0>, <&adc1 4>, <&adc1 8>;
@@ -16,6 +25,12 @@
 		compatible = "gpio-leds";
 		left_blinker: left_blinker {
 			gpios = <&gpioc 8 GPIO_ACTIVE_HIGH>;
+		};
+		rear_left_blinker: rear_left_blinker {
+			gpios = <&gpioc 12 GPIO_ACTIVE_HIGH>;
+		};
+		rear_right_blinker: rear_right_blinker {
+			gpios = <&gpiod 2 GPIO_ACTIVE_HIGH>;
 		};
 		right_blinker: right_blinker {
 			gpios = <&gpioc 10 GPIO_ACTIVE_HIGH>;
@@ -83,4 +98,9 @@
 		zephyr,acquisition-time = <ADC_ACQ_TIME_MAX>;
 		zephyr,resolution = <12>;
 	};
+};
+
+/* Reserve PC9 for CMD_RX instead of the board default I2C3 SDA. */
+&i2c3 {
+	status = "disabled";
 };
