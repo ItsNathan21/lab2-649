@@ -22,8 +22,8 @@
 #define CURRENT_SENSOR_PRIORITY 5
 /** @brief Initial sampling-thread stack budget, not a measured high-water mark. */
 #define CURRENT_SENSOR_STACK_SIZE 1536
-/** @brief Print raw voltage and calibrated current twice per second. */
-#define CURRENT_SENSOR_PRINT_MS 500U
+/** @brief Print at 10 Hz so the recorder gets ~10 readings per 1 s stall test. */
+#define CURRENT_SENSOR_PRINT_MS 100U
 
 /* ACS712 powered at 5 V, with separate 10k/10k dividers on OUT: ADC voltage = OUT/2.
  * Confirmed 5A modules use nominal 185 mV/A, divided to 92500 uV/A at the ADC.
@@ -31,18 +31,18 @@
  * Nominal ADC-pin sensitivities: 5A=92500, 20A=50000, 30A=33000 uV/A.
  * See CURRENT_SENSOR_WIRING.md. Do not use undivided ACS712 sensitivities here.
  */
-/** @brief Left zero: mean of 52 rest samples on 10/01, 12 V on, wheels stopped. */
-#define CURRENT_SENSOR_LEFT_ZERO_UV 1304100
-/** @brief Nominal left sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
-#define CURRENT_SENSOR_LEFT_UV_PER_AMP 92500
-/** @brief Right zero: mean of 52 rest samples on 10/01, 12 V on, wheels stopped. */
-#define CURRENT_SENSOR_RIGHT_ZERO_UV 1307300
-/** @brief Nominal right sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
+/** @brief Left zero: idle mean after fixing the buck ground on 10/01, 12 V on, wheels stopped. */
+#define CURRENT_SENSOR_LEFT_ZERO_UV 1321300
+/** @brief Nominal 185 mV/A halved by 10k/10k; negative: left stall lowered OUT by 61 mV. */
+#define CURRENT_SENSOR_LEFT_UV_PER_AMP (-92500)
+/** @brief Right zero: idle mean after fixing the buck ground on 10/01, 12 V on, wheels stopped. */
+#define CURRENT_SENSOR_RIGHT_ZERO_UV 1334000
+/** @brief Nominal 185 mV/A halved by 10k/10k; right stall raised OUT by 96 mV. */
 #define CURRENT_SENSOR_RIGHT_UV_PER_AMP 92500
-/** @brief Servo zero: mean of 52 rest samples on 10/01; includes servo holding current. */
-#define CURRENT_SENSOR_SERVO_ZERO_UV 1300100
-/** @brief Nominal servo sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
-#define CURRENT_SENSOR_SERVO_UV_PER_AMP 92500
+/** @brief Servo zero: idle mean after the buck ground fix on 10/01; includes holding current. */
+#define CURRENT_SENSOR_SERVO_ZERO_UV 1325000
+/** @brief Nominal 185 mV/A halved by 10k/10k; negative because servo stall lowered OUT. */
+#define CURRENT_SENSOR_SERVO_UV_PER_AMP (-92500)
 
 /** @brief Coherent scan; valid bits refer to calibrated current, not sensor presence. */
 struct current_sensor_snapshot {

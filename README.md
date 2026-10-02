@@ -256,7 +256,7 @@ Do not automatically zero at boot: the motors/servo may already be drawing curre
 Floating/disconnected analog inputs cannot be reliably identified by software;
 validity means a fresh calibrated, unclipped conversion, not verified sensor presence.
 
-The STM console prints raw counts, averaged mV, converted mA, and masks twice per
+The STM console prints raw counts, averaged mV, converted mA, and masks 10 times per
 second, always ordered left/right/servo. `sampled=0x07` means all three ADC reads
 succeeded. With the nominal 5A settings, `valid=0x07` is expected for fresh,
 unclipped, representable readings; it does not certify measured calibration accuracy. **An mA value
@@ -287,7 +287,7 @@ has been performed by this change; current sensing is not ready for checkoff yet
 To average readings for a test condition, close miniterm and run
 `python tools/record_current.py` from WSL with the venv active. Press **s** to start and
 **s** again to stop: it prints each sensor's average, spread, min/max, and the PID state,
-and saves the samples to `recordings/` as CSV. **q** quits. Readings arrive twice per second.
+and saves the samples to `recordings/` as CSV. **q** quits. Readings arrive 10 times per second.
 
 Portable regression tests (no board required):
 
