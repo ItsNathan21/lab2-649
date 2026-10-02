@@ -55,7 +55,8 @@ Use tabs for C indentation, `snake_case`, braces on separate lines for functions
 - `current_conversion.c/.h`: portable signed voltage-to-current conversion.
 - `uart_protocol.c/.h`: portable framing shared with the Pi.
 - `servo.c/.h`: hardware PWM steering mapping; main initializes it, then UART owns updates.
-- `blinker.c/.h`: independent indicator GPIO timing and enable/disable API.
+- `console_status.c/.h`: pinned, in-place console rows for the periodic PID/ENC/CURRENT diagnostics.
+- `blinker.c/.h`: mutually exclusive indicator GPIO timing and enable/disable API.
 - `encoder_monitor.c/.h`: reporting worker and start API.
 - `pedal_control.c/.h`: pure throttle/brake mapping into wheel-speed requests.
 - `motor_controller.c/.h`: independent speed PID loops, output ownership, and tuning constants.

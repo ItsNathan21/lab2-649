@@ -4,7 +4,7 @@
 #include <errno.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/kernel.h>
-#include <zephyr/sys/printk.h>
+#include "console_status.h"
 #include "current_conversion.h"
 #include "current_sensor.h"
 
@@ -94,13 +94,14 @@ static void sensor_worker(void *arg1, void *arg2, void *arg3)
 		latest = sample;
 		k_spin_unlock(&snapshot_lock, key);
 		if (sample.timestamp_ms - last_print_ms >= CURRENT_SENSOR_PRINT_MS) {
-			printk("CURRENT L/R/S raw=%u/%u/%u mV=%d/%d/%d mA=%d/%d/%d "
-			       "sampled=0x%02x valid=0x%02x\n",
-			       sample.raw[0], sample.raw[1], sample.raw[2],
-			       sample.voltage_uv[0] / 1000, sample.voltage_uv[1] / 1000,
-			       sample.voltage_uv[2] / 1000, sample.milliamps[0],
-			       sample.milliamps[1], sample.milliamps[2],
-			       sample.sampled_mask, sample.valid_mask);
+			console_status_print(CONSOLE_STATUS_CURRENT,
+					     "CURRENT L/R/S raw=%u/%u/%u mV=%d/%d/%d mA=%d/%d/%d "
+					     "sampled=0x%02x valid=0x%02x",
+					     sample.raw[0], sample.raw[1], sample.raw[2],
+					     sample.voltage_uv[0] / 1000, sample.voltage_uv[1] / 1000,
+					     sample.voltage_uv[2] / 1000, sample.milliamps[0],
+					     sample.milliamps[1], sample.milliamps[2],
+					     sample.sampled_mask, sample.valid_mask);
 			last_print_ms = sample.timestamp_ms;
 		}
 		next_ms += CURRENT_SENSOR_PERIOD_MS;

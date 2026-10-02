@@ -11,12 +11,12 @@
 /** @brief Ignore changes under 3 us (0.27 degrees); initial noise tuning, 0 disables it. */
 #define SERVO_UPDATE_DEADBAND_US 3U
 
-/** @brief LD-1501MG nominal 0-degree endpoint is 500 us; restrict it for linkage clearance. */
-#define SERVO_MIN_PULSE_US    500U
+/** @brief Left limit: buzz began at steer -20220 (~883 us) on 10/01; 910 adds ~30 us margin. */
+#define SERVO_MIN_PULSE_US    910U
 /** @brief LD-1501MG nominal midpoint is 1500 us; adjust for mechanical centering. */
 #define SERVO_CENTER_PULSE_US 1500U
-/** @brief LD-1501MG nominal 180-degree endpoint is 2500 us; restrict it for linkage clearance. */
-#define SERVO_MAX_PULSE_US    2500U
+/** @brief Right limit: buzz began at steer 20703 (~2132 us) on 10/01; 2100 adds ~30 us margin. */
+#define SERVO_MAX_PULSE_US    2100U
 /** @brief Set to 1 to reverse steering; initial 0 maps wheel-left to the shorter pulse. */
 #define SERVO_REVERSED        0
 

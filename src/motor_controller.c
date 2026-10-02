@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
+#include "console_status.h"
 #include "encoder.h"
 #include "motor.h"
 #include "motor_controller.h"
@@ -264,9 +265,11 @@ static void controller_worker(void *arg1, void *arg2, void *arg3)
 			return;
 		}
 		if (sample.timestamp_ms - last_print_ms >= MOTOR_PID_PRINT_MS) {
-			printk("PID target=%u mRPM L=%d mRPM duty=%u/1000 "
-			       "R=%d mRPM duty=%u/1000 brake=%u/1000\n",
-			       target, left_speed, left_duty, right_speed, right_duty, brake_duty);
+			console_status_print(CONSOLE_STATUS_PID,
+					     "PID target=%u mRPM L=%d mRPM duty=%u/1000 "
+					     "R=%d mRPM duty=%u/1000 brake=%u/1000",
+					     target, left_speed, left_duty, right_speed, right_duty,
+					     brake_duty);
 			last_print_ms = sample.timestamp_ms;
 		}
 		previous = sample;

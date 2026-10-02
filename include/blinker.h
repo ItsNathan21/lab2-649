@@ -1,5 +1,5 @@
 /** @file blinker.h
- * @brief Independent left/right GPIO blinkers.
+ * @brief Mutually exclusive left/right GPIO blinkers.
  */
 #ifndef BLINKER_H_
 #define BLINKER_H_
@@ -16,7 +16,7 @@
 /** @brief Priority 3 lets hazard changes run promptly ahead of routine reporting. */
 #define BLINKER_PRIORITY       3
 
-/** @brief The two independently enabled indicator outputs. */
+/** @brief The two indicator outputs; enabling one side cancels the other. */
 enum blinker_side {
 	BLINKER_LEFT,
 	BLINKER_RIGHT,
@@ -40,7 +40,8 @@ int blinker_init(void);
 /**
  * @brief Request blinking or steady off; the worker applies changes when scheduled.
  * @param side BLINKER_LEFT or BLINKER_RIGHT.
- * @param enabled True to blink, false to turn off; repeated values preserve blink phase.
+ * @param enabled True to blink (cancelling the other side), false to turn off; repeated
+ *        values preserve blink phase.
  * @return 0 on success, -EINVAL for an invalid side, or -ENODEV before initialization.
  */
 int blinker_set(enum blinker_side side, bool enabled);
@@ -56,7 +57,7 @@ int blinker_set(enum blinker_side side, bool enabled);
  */
 int blinker_hazards(bool enabled);
 /**
- * @brief Toggle a normal indicator using module-owned state; ignored during hazards.
+ * @brief Toggle a normal indicator; turning one on cancels the other; ignored during hazards.
  * @param side Left or right indicator.
  * @return 0 on success, or a negative argument/state error.
  */

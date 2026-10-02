@@ -11,6 +11,7 @@ target_sources(app PRIVATE
   src/current_conversion.c
   src/current_sensor.c
   src/blinker.c
+  src/console_status.c
   src/main.c
   src/encoder.c
   src/encoder_monitor.c

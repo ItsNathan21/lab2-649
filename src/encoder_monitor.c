@@ -4,7 +4,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <zephyr/kernel.h>
-#include <zephyr/sys/printk.h>
+#include "console_status.h"
 #include "encoder.h"
 #include "encoder_monitor.h"
 
@@ -45,12 +45,13 @@ static void encoder_monitor_thread(void *arg1, void *arg2, void *arg3)
 				    (ENCODER_COUNTS_PER_REV * elapsed);
 		int64_t right_mrpm = (now.counts[1] - last.counts[1]) * 60000000LL /
 				     (ENCODER_COUNTS_PER_REV * elapsed);
-		printk("ENC L=%lld (%lld cps, %lld mRPM) R=%lld (%lld cps, %lld mRPM) "
-		       "invalid=%u/%u read_errors=%u\n",
-		       (long long)now.counts[0], (long long)left_cps, (long long)left_mrpm,
-		       (long long)now.counts[1], (long long)right_cps, (long long)right_mrpm,
-		       (unsigned int)now.invalid_transitions[0],
-		       (unsigned int)now.invalid_transitions[1], (unsigned int)now.read_errors);
+		console_status_print(CONSOLE_STATUS_ENC,
+				     "ENC L=%lld (%lld cps, %lld mRPM) R=%lld (%lld cps, %lld mRPM) "
+				     "invalid=%u/%u read_errors=%u",
+				     (long long)now.counts[0], (long long)left_cps, (long long)left_mrpm,
+				     (long long)now.counts[1], (long long)right_cps, (long long)right_mrpm,
+				     (unsigned int)now.invalid_transitions[0],
+				     (unsigned int)now.invalid_transitions[1], (unsigned int)now.read_errors);
 		last = now;
 		if (next < now.timestamp_ms) {
 			next = now.timestamp_ms;

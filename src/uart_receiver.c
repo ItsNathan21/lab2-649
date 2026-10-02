@@ -67,7 +67,13 @@ static void apply_faults(uint8_t faults)
 	if (blinker_hazards(faults != 0U) != 0) {
 		faults |= UART_FAULT_HARDWARE;
 	}
-	atomic_set(&fault_bits, faults);
+	uint8_t previous = (uint8_t)atomic_set(&fault_bits, faults);
+
+	/* Log only transitions; 0x01 link, 0x02 source/stale, 0x04 self-test, 0x08 hardware. */
+	if (previous != faults) {
+		printk("[%lld ms] FAULT 0x%02x -> 0x%02x\n", (long long)k_uptime_get(),
+		       (unsigned int)previous, (unsigned int)faults);
+	}
 }
 
 /** @brief Supervise reception and dispatch only current, healthy actuator commands.

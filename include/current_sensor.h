@@ -31,16 +31,16 @@
  * Nominal ADC-pin sensitivities: 5A=92500, 20A=50000, 30A=33000 uV/A.
  * See CURRENT_SENSOR_WIRING.md. Do not use undivided ACS712 sensitivities here.
  */
-/** @brief Nominal left zero after the 1:2 divider; replace with measured zero-current uV. */
-#define CURRENT_SENSOR_LEFT_ZERO_UV 1250000
+/** @brief Left zero: mean of 52 rest samples on 10/01, 12 V on, wheels stopped. */
+#define CURRENT_SENSOR_LEFT_ZERO_UV 1304100
 /** @brief Nominal left sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
 #define CURRENT_SENSOR_LEFT_UV_PER_AMP 92500
-/** @brief Nominal right zero after the 1:2 divider; replace with measured zero-current uV. */
-#define CURRENT_SENSOR_RIGHT_ZERO_UV 1250000
+/** @brief Right zero: mean of 52 rest samples on 10/01, 12 V on, wheels stopped. */
+#define CURRENT_SENSOR_RIGHT_ZERO_UV 1307300
 /** @brief Nominal right sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
 #define CURRENT_SENSOR_RIGHT_UV_PER_AMP 92500
-/** @brief Nominal servo zero after the 1:2 divider; replace with measured zero-current uV. */
-#define CURRENT_SENSOR_SERVO_ZERO_UV 1250000
+/** @brief Servo zero: mean of 52 rest samples on 10/01; includes servo holding current. */
+#define CURRENT_SENSOR_SERVO_ZERO_UV 1300100
 /** @brief Nominal servo sensitivity: 185 mV/A for 5A ACS712, halved by 10k/10k. */
 #define CURRENT_SENSOR_SERVO_UV_PER_AMP 92500
 

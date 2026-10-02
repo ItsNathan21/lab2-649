@@ -73,12 +73,17 @@ raised. Either endpoint may start first; drive stays braked until both links and
 The Pi prints each decoded UDP packet and a heartbeat/fault summary twice per second.
 Diagnostic output is nonblocking, so a stalled terminal can drop log lines without
 stalling UART traffic.
-The STM32 prints lines such as:
+The STM32 pins these three diagnostic rows to the top of the terminal and redraws
+them in place (ANSI escapes); fault and startup messages scroll beneath them:
 
 ```text
-PID target=... mRPM L=... mRPM duty=.../1000 R=... mRPM duty=.../1000
+PID target=... mRPM L=... mRPM duty=.../1000 R=... mRPM duty=.../1000 brake=.../1000
 ENC L=... (... cps, ... mRPM) R=... (... cps, ... mRPM) invalid=0/0 read_errors=0
+CURRENT L/R/S raw=.../.../... mV=.../.../... mA=.../.../... sampled=0x07 valid=0x07
 ```
+
+Rows wider than the terminal are cut off, so widen the window (about 110 columns).
+Set `CONSOLE_STATUS_INPLACE` to 0 in `include/console_status.h` for plain scrolling lines.
 
 Both encoders use 1320 decoded counts per wheel revolution; 1000 mRPM = 1 RPM.
 
@@ -169,11 +174,15 @@ the chassis can require narrower limits than the servo itself.
 
 The module starts centered and maps wheel input as follows:
 
-| Wheel input | Default pulse |
+| Wheel input | Pulse |
 | --- | --- |
-| -32768 (left) | 500 us |
+| -32768 (left) | 910 us |
 | 0 (center) | 1500 us |
-| 32767 (right) | 2500 us |
+| 32767 (right) | 2100 us |
+
+The limits were narrowed on 10/01 from the servo's 500..2500 us: buzzing against the
+linkage stops began at about 883 us (left) and 2132 us (right), so each limit keeps
+about 30 us of margin. Full wheel lock still maps exactly to each limit.
 
 Edit pulse limits and `SERVO_REVERSED` in `include/servo.h` to match linkage travel.
 The repetition period is set to 20 ms (50 Hz) in the overlay's `steering_servo.pwms`.
@@ -275,6 +284,11 @@ reference/zero/current values, and record rest, running, and brief-stall reading
 for all three channels as the handout requests. None of those hardware measurements
 has been performed by this change; current sensing is not ready for checkoff yet.
 
+To average readings for a test condition, close miniterm and run
+`python tools/record_current.py` from WSL with the venv active. Press **s** to start and
+**s** again to stop: it prints each sensor's average, spread, min/max, and the PID state,
+and saves the samples to `recordings/` as CSV. **q** quits. Readings arrive twice per second.
+
 Portable regression tests (no board required):
 
 ```bash
@@ -287,7 +301,7 @@ cc -std=c11 -Wall -Wextra -Werror -Iinclude tests/current_test.c \
 
 Press left blinker (button 5) or right blinker (button 4) once to enable that side;
 press again to disable it. Holding a button does not repeatedly toggle it.
-Both sides can blink independently. Each starts on, then alternates 500 ms on and
+Only one side blinks at a time: enabling one side cancels the other. Each starts on, then alternates 500 ms on and
 500 ms off (1 Hz, 50% duty). Change `BLINKER_RATE_HZ` in `include/blinker.h` to
 adjust the rate; use a value that divides 500 for whole-millisecond half-periods.
 
@@ -381,6 +395,7 @@ Continue past startup before restarting the Pi sender; prints appear in miniterm
 - `src/current_sensor.c`, `include/current_sensor.h`: ADC sampling, calibration settings, and snapshots.
 - `src/current_conversion.c`, `include/current_conversion.h`: portable voltage-to-current conversion.
 - `tests/current_test.c`: calibration and current telemetry regression tests.
+- `src/console_status.c`, `include/console_status.h`: pinned in-place PID/ENC/CURRENT console rows.
 - `src/blinker.c`, `include/blinker.h`: GPIO blinker worker and timing configuration.
 - `src/servo.c`, `include/servo.h`: steering PWM mapping and pulse calibration.
 - `src/main.c`: initialize drivers and start UART motor control and encoder monitoring.

@@ -66,6 +66,23 @@ static void update_output(enum blinker_side side, int64_t now)
 }
 
 /**
+ * @brief Select one side's normal state while holding the lock; enabling cancels the other side.
+ * @param side Output index to change.
+ * @param enabled True to blink this side, false to turn it off.
+ */
+static void select_side(enum blinker_side side, bool enabled)
+{
+	states[side].enabled = enabled;
+	cancel_armed[side] = false;
+	if (enabled) {
+		enum blinker_side other = side == BLINKER_LEFT ? BLINKER_RIGHT : BLINKER_LEFT;
+
+		states[other].enabled = false;
+		cancel_armed[other] = false;
+	}
+}
+
+/**
  * @brief Blink enabled outputs and sleep until the next edge or API request.
  * @param arg1 Unused Zephyr thread argument.
  * @param arg2 Unused Zephyr thread argument.
@@ -154,8 +171,7 @@ int blinker_set(enum blinker_side side, bool enabled)
 	}
 	k_mutex_lock(&blinker_lock, K_FOREVER);
 	if (!hazards) {
-		states[side].enabled = enabled;
-		cancel_armed[side] = false;
+		select_side(side, enabled);
 	}
 	k_mutex_unlock(&blinker_lock);
 	k_sem_give(&blinker_changed);
@@ -199,8 +215,7 @@ int blinker_toggle(enum blinker_side side)
 	}
 	k_mutex_lock(&blinker_lock, K_FOREVER);
 	if (!hazards) {
-		states[side].enabled = !states[side].enabled;
-		cancel_armed[side] = false;
+		select_side(side, !states[side].enabled);
 	}
 	k_mutex_unlock(&blinker_lock);
 	k_sem_give(&blinker_changed);
